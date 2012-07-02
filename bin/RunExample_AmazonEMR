@@ -1,0 +1,25 @@
+#!/bin/bash
+
+echo "Apologies - this script is not yet ready to run."
+exit 1
+
+EXAMPLE="ExampleA"
+
+CORE_TYPE="m1.small"
+TASK_TYPE="c1.medium"
+INSTANCES=4
+
+export JOBNAME="CommonCrawl_${EXAMPLE}"
+export TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+
+echo "==========================================="
+echo $(date +%Y%m%d.%H%M%S) " > $0 : starting...."
+
+# if the line breaks don't work, join the following lines and remove all '\'
+../emr/elastic-mapreduce --create --plain-output --name "${JOBNAME}__${TIMESTAMP}" \
+  --num-instances "${INSTANCES}" --master-instance-type "${CORE_TYPE}" --slave-instance-type "${TASK_TYPE}" \
+  --jar     "s3n://commoncrawl-dev/emr/jars/commoncrawl-examples-0.1.jar" --step-name "Run ${EXAMPLE}" \
+  --log-uri "s3n://commoncrawl-dev/emr/logs/" \
+  --main-class "org.commoncrawl.tutorial.ExampleA" \
+  --verbose
+

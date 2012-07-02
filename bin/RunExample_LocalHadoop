@@ -1,0 +1,53 @@
+#!/bin/bash -aeu
+
+BASE_PATH=`dirname $0`"/.."
+BASE_PATH=`cd ${BASE_PATH}; pwd`
+
+if [ ! -r ~/.awssecret ]; then
+  echo ""
+  echo "ERROR: Please create a readable '.awssecret' file in your home directory."
+  echo ""
+  echo "The first line should be your AWS Access ID."
+  echo ""
+  echo "The second line should be your AWS Secret Key."
+  echo ""
+  exit 1
+fi
+
+if [ ! -e ${BASE_PATH}/dist/lib/commoncrawl-examples-1.0.0.jar ]; then
+  echo ""
+  echo "ERROR: Please run 'ant' to build 'dist/lib/commoncrawl-examples-1.0.0.jar' before attempting to run an example."
+  echo ""
+  exit 1
+fi
+
+
+if [ ! -z "$@" ]; then
+  EXAMPLES="$@"
+else
+  EXAMPLES=$(ls ${BASE_PATH}/src/org/commoncrawl/examples | sed 's/\.java$//')
+fi
+
+for EXAMPLE in ${EXAMPLES}; do
+
+  if [ ! -f ${BASE_PATH}/src/org/commoncrawl/examples/${EXAMPLE}.java ]; then
+    echo ""
+    echo "ERROR: Cannot run example '${EXAMPLE}' - not found."
+    echo ""
+    echo "Please run one of the following:"
+    echo ""
+
+    ls ${BASE_PATH}/src/org/commoncrawl/examples | sed 's/\.java$//'
+    echo ""
+
+    exit 1
+  fi
+
+  echo "* "
+  echo "* Running example '${EXAMPLE}'"
+  echo "* "
+  echo "-------------------------------------------------------------"
+  hadoop jar ${BASE_PATH}/dist/lib/commoncrawl-examples-1.0.0.jar org.commoncrawl.examples.${EXAMPLE}
+
+done
+

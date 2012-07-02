@@ -1,0 +1,35 @@
+This is library of examples showing how to use the Common Crawl data corpus.
+
+To build
+--------
+
+You'll need to have Apache Ant (http://ant.apache.org/manual/install.html)
+installed, and once you do, just run a:
+
+# ant dist
+
+This step will compile the libraries and Hadoop code into an Elastic MapReduce-
+friendly JAR at dist/lib/commoncrawl-examples-1.0.jar, suitable for use as a
+custom JAR-based Elastic MapReduce workflow.
+
+To run locally
+--------------
+
+You'll need to be running Hadoop, and if you don't have it installed, Cloudera
+provides a useful set of OS-specific Hadoop packages which will make it easy.
+Check out their site:
+
+https://ccp.cloudera.com/display/SUPPORT/Downloads
+
+You'll also need to create an '~/.awssecret' file, with your AWS Access ID on the
+first line and your AWS Secret Key on the second line.
+
+Once Hadoop is installed and your secret file is created, you can use the
+pre-packaged shell script to execute the examples:
+
+<checkout location>/bin/RunExample_LocalHadoop
+
+Or, you can use the Hadoop command yourself:
+
+hadoop jar <checkout location>/dist/lib/commoncrawl-examples-1.0.jar org.commoncrawl.examples.[Example Name]
+
