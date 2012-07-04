@@ -1,0 +1,9 @@
+#!/bin/bash -aeu
+
+if [ -z "$1" ]; then
+  echo "ERROR: Must supply a job ID"
+  exit 1
+fi
+
+sudo -- bash -c "cat /var/lib/hadoop/mapred/userlogs/$1/*/* | more"
+
