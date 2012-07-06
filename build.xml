@@ -1,7 +1,7 @@
-<project name="Hello World" default="dist" basedir=".">
+<project name="Common Crawl Examples" default="dist" basedir=".">
 
   <description>
-    CommonCrawl Example build file
+    Common Crawl Examples Build File
   </description>
 
   <!-- set global properties for this build -->

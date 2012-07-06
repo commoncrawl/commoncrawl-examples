@@ -36,56 +36,36 @@ import org.apache.hadoop.util.Progressable;
 import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
 
-// Common Crawl classes
-import org.commoncrawl.hadoop.io.ArcInputFormat;
-import org.commoncrawl.hadoop.io.ArcRecord;
-
-// jsoup classes
-import org.jsoup.Jsoup;
-
 /**
  * An example showing how to use the Common Crawl 'metadata' files to quickly
  * gather high level information about the corpus' content.
  * 
  * @author Chris Stephens <chris@commoncrawl.org>
  */
-public class ExampleArcWordCount extends Configured implements Tool {
+public class ExampleTextWordCount extends Configured implements Tool {
 
-  private static final Logger _logger = Logger.getLogger(ExampleArcWordCount.class);
+  private static final Logger _logger = Logger.getLogger(ExampleTextWordCount.class);
 
   /**
    * Parse and output all words contained within the displayed text of each
    * page in the ARC files.
    */
-  public static class ExampleArcWordCountMapper
+  public static class ExampleTextWordCountMapper
       extends    MapReduceBase 
-      implements Mapper<Text, ArcRecord, Text, LongWritable> {
+      implements Mapper<Text, Text, Text, LongWritable> {
 
     // create a counter group for Mapper-specific statistics
     private final String _counterGroup = "Custom Mapper Counters";
 
-    public void map(Text key, ArcRecord value, OutputCollector<Text, LongWritable> output, Reporter reporter)
+    public void map(Text key, Text value, OutputCollector<Text, LongWritable> output, Reporter reporter)
         throws IOException {
+
+      reporter.incrCounter(this._counterGroup, "Records In", 1);
 
       try {
 
-        reporter.incrCounter(this._counterGroup, "Content Type - "+value.getContentType(), 1);
-
-        // Ignore non-HTML content.
-        if (!value.getContentType().equals("text/html")) {
-          reporter.incrCounter(this._counterGroup, "Skipped - Non-HTML", 1);
-          return;
-        }
-
-        // Let's pretend that the page content is ASCII ...
-        String content = new String(value.getContent(), "US-ASCII");
-
-        if (content == null || content == "") {
-          reporter.incrCounter(this._counterGroup, "Skipped - Empty Content", 1);
-        }
-
-        // Parses HTML with a tolerant parser and extracts all text.
-        String pageText = Jsoup.parse(content).text();
+        // Get the text content as a string.
+        String pageText = value.toString();
 
         // Removes all punctuation.
         pageText = pageText.replaceAll("[^a-zA-Z0-9 ]", "");
@@ -98,7 +78,7 @@ public class ExampleArcWordCount extends Configured implements Tool {
         }
 
         // Splits by space and outputs to OutputCollector.
-        for (String word: pageText.split(" ")) {
+        for (String word : pageText.split(" ")) {
           output.collect(new Text(word.toLowerCase()), new LongWritable(1));
         }
       }
@@ -123,7 +103,7 @@ public class ExampleArcWordCount extends Configured implements Tool {
     // Creates a new job configuration for this Hadoop job.
     JobConf conf = new JobConf(this.getConf());
 
-    conf.setJarByClass(ExampleArcWordCount.class);
+    conf.setJarByClass(ExampleTextWordCount.class);
 
     // Set your Amazon S3 credentials.
     BufferedReader in = new BufferedReader(new FileReader(System.getProperty("user.home") + File.separatorChar + ".awssecret"));
@@ -138,14 +118,14 @@ public class ExampleArcWordCount extends Configured implements Tool {
     conf.set("fs.s3n.awsSecretAccessKey", awsSecretAccessKey);
 
     // Define the input and output paths for this example
-    String inputFile  = "s3n://aws-publicdatasets/common-crawl/parse-output/segment/1341528314025/1341528364967_0.arc.gz";
-    String outputPath = "s3n://commoncrawl-dev/output/ExampleArcWordCount";
+    String inputFile  = "s3n://aws-publicdatasets/common-crawl/parse-output/segment/1341528314222/textData-01632";
+    String outputPath = "s3n://commoncrawl-dev/output/ExampleTextWordCount";
 
     _logger.info("reading from '"+ inputFile + "'");
     _logger.info("writing to '"+ outputPath + "'");
 
     // Set which InputFormat class to use.
-    conf.setInputFormat(ArcInputFormat.class);
+    conf.setInputFormat(SequenceFileInputFormat.class);
 
     // Set the path where Hadoop should get the input data from.
     SequenceFileInputFormat.addInputPath(conf, new Path(inputFile));
@@ -168,7 +148,7 @@ public class ExampleArcWordCount extends Configured implements Tool {
     conf.setOutputValueClass(LongWritable.class);
 
     // Set which Mapper and Reducer classes to use.
-    conf.setMapperClass(ExampleArcWordCount.ExampleArcWordCountMapper.class);
+    conf.setMapperClass(ExampleTextWordCount.ExampleTextWordCountMapper.class);
     conf.setReducerClass(LongSumReducer.class);
 
     // Allow up to 10% of input records to fail mapping.
@@ -194,7 +174,7 @@ public class ExampleArcWordCount extends Configured implements Tool {
    */
   public static void main(String[] args)
       throws Exception {
-    int res = ToolRunner.run(new Configuration(), new ExampleArcWordCount(), args);
+    int res = ToolRunner.run(new Configuration(), new ExampleTextWordCount(), args);
     System.exit(res);
   }
 }
