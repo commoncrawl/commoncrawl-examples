@@ -8,6 +8,7 @@
   <property name="name" value="commoncrawl-examples" />
   <property name="version" value="1.0.0" />
 
+  <property name="lib"   location="lib"  />
   <property name="src"   location="src"  />
   <property name="build" location="build"/>
   <property name="dist"  location="dist" />
@@ -35,11 +36,14 @@
     <mkdir dir="${build}/lib"/>
 
     <jar jarfile="${dist}/lib/${name}-${version}.jar" basedir="${build}">
-      <zipfileset includes="**/*.class" src="lib/commoncrawl-0.1.jar"/>
-      <zipfileset includes="**/*.class" src="lib/jsoup-1.6.1.jar"/>
-      <zipfileset includes="**/*.class" src="lib/gson-2.2.1.jar"/>
-      <zipfileset includes="**/*.class" src="lib/guava-12.0.jar"/>
-    </jar> 
+      <zipfileset dir="lib" prefix="lib" >
+        <include name="commoncrawl-*.jar" />
+        <include name="gson-*.jar" />
+        <include name="guava-*.jar" />
+        <include name="httpcore-*.jar" />
+        <include name="jsoup-*.jar" />
+      </zipfileset>
+    </jar>
 
   </target>
 
