@@ -1,7 +1,6 @@
 package org.commoncrawl.examples;
 
 // Java classes
-import java.lang.Math;
 import java.io.BufferedReader;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -36,12 +35,15 @@ import org.apache.hadoop.util.Progressable;
 import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
 
-// Common Crawl classes
-import org.commoncrawl.hadoop.io.ArcInputFormat;
-import org.commoncrawl.hadoop.io.ArcRecord;
+// Google Gson classes
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
-// jsoup classes
-import org.jsoup.Jsoup;
+// Google Guava classes
+import com.google.common.net.InternetDomainName;
 
 /**
  * An example showing how to use the Common Crawl 'metadata' files to quickly
@@ -49,65 +51,81 @@ import org.jsoup.Jsoup;
  * 
  * @author Chris Stephens <chris@commoncrawl.org>
  */
-public class ExampleArcWordCount extends Configured implements Tool {
-
-  private static final Logger _logger = Logger.getLogger(ExampleArcWordCount.class);
+public class ExampleMetadataDomainPageCount extends Configured implements Tool {
 
   /**
-   * Parse and output all words contained within the displayed text of each
-   * page in the ARC files.
-   */
-  public static class ExampleArcWordCountMapper
-      extends    MapReduceBase 
-      implements Mapper<Text, ArcRecord, Text, LongWritable> {
+   * Mapping class that produces the normalized domain name and a count of '1'
+   * for every successfully retrieved URL in the Common Crawl corpus.
+   */ 
+  public static class ExampleMetadataDomainPageCountMapper
+      extends    MapReduceBase
+      implements Mapper<Text, Text, Text, LongWritable> {
+
+    private static final Logger _logger = Logger.getLogger(ExampleMetadataDomainPageCount.class);
 
     // create a counter group for Mapper-specific statistics
     private final String _counterGroup = "Custom Mapper Counters";
 
-    public void map(Text key, ArcRecord value, OutputCollector<Text, LongWritable> output, Reporter reporter)
+    // implement the main "map" function
+    public void map(Text key, Text value, OutputCollector<Text, LongWritable> output, Reporter reporter)
         throws IOException {
+
+      // key & value are "Text" right now ...
+      String url   = key.toString();
+      String json  = value.toString();
 
       try {
 
-        reporter.incrCounter(this._counterGroup, "Content Type - "+value.getContentType(), 1);
+        // Get the base domain name
+        URI uri = new URI(url);
+        String host = uri.getHost();
 
-        // Ignore non-HTML content.
-        if (!value.getContentType().equals("text/html")) {
-          reporter.incrCounter(this._counterGroup, "Skipped - Non-HTML", 1);
+        if (host == null) {
+          reporter.incrCounter(this._counterGroup, "Invalid URI", 1);
           return;
         }
 
-        // Let's pretend that the page content is ASCII ...
-        String content = new String(value.getContent(), "US-ASCII");
+        InternetDomainName domainObj = InternetDomainName.from(host);
 
-        if (content == null || content == "") {
-          reporter.incrCounter(this._counterGroup, "Skipped - Empty Content", 1);
+        String domain = domainObj.topPrivateDomain().name();
+
+        if (domain == null) {
+          reporter.incrCounter(this._counterGroup, "Invalid Domain", 1);
+          return;
         }
 
-        // Parses HTML with a tolerant parser and extracts all text.
-        String pageText = Jsoup.parse(content).text();
+        // See if the page has a successful HTTP code
+        JsonParser jsonParser = new JsonParser();
+        JsonObject jsonObj    = jsonParser.parse(json).getAsJsonObject();
 
-        // Removes all punctuation.
-        pageText = pageText.replaceAll("[^a-zA-Z0-9 ]", "");
+        int httpCode;
 
-        // Normalizes whitespace to single spaces.
-        pageText = pageText.replaceAll("\\s+", " ");
-
-        if (pageText == null || pageText == "") {
-          reporter.incrCounter(this._counterGroup, "Skipped - Empty Page Text", 1);
+        if (jsonObj.has("http_result") == false) {
+          reporter.incrCounter(this._counterGroup, "HTTP Code Missing", 1);
+          return;
         }
 
-        // Splits by space and outputs to OutputCollector.
-        for (String word: pageText.split(" ")) {
-          output.collect(new Text(word.toLowerCase()), new LongWritable(1));
+        if (jsonObj.get("http_result").getAsInt() == 200) {
+          reporter.incrCounter(this._counterGroup, "HTTP Success", 1);
+
+          // only output counts for pages that were successfully retrieved
+          output.collect(new Text(domain), new LongWritable(1));
+        }
+        else {
+          reporter.incrCounter(this._counterGroup, "HTTP Not Success", 1);
         }
       }
+      catch (IOException ex) {
+        throw ex;
+      }
       catch (Exception ex) {
-        _logger.error("Caught Exception", ex);
+        _logger.error("Caught Exception", ex); 
         reporter.incrCounter(this._counterGroup, "Exceptions", 1);
       }
     }
   }
+
+  private static final Logger _logger = Logger.getLogger(ExampleMetadataDomainPageCount.class);
 
   /**
    * Implmentation of Tool.run() method, which builds and runs the Hadoop job.
@@ -123,7 +141,7 @@ public class ExampleArcWordCount extends Configured implements Tool {
     // Creates a new job configuration for this Hadoop job.
     JobConf conf = new JobConf(this.getConf());
 
-    conf.setJarByClass(ExampleArcWordCount.class);
+    conf.setJarByClass(ExampleMetadataDomainPageCount.class);
 
     // Set your Amazon S3 credentials.
     BufferedReader in = new BufferedReader(new FileReader(System.getProperty("user.home") + File.separatorChar + ".awssecret"));
@@ -138,14 +156,14 @@ public class ExampleArcWordCount extends Configured implements Tool {
     conf.set("fs.s3n.awsSecretAccessKey", awsSecretAccessKey);
 
     // Define the input and output paths for this example
-    String inputFile  = "s3n://aws-publicdatasets/common-crawl/parse-output/segment/1341528314025/1341528364967_0.arc.gz";
-    String outputPath = "s3n://commoncrawl-dev/output/ExampleArcWordCount";
+    String inputFile  = "s3n://aws-publicdatasets/common-crawl/parse-output/segment/1331160113237/metadata-00009";
+    String outputPath = "s3n://commoncrawl-dev/output/ExampleMetadataDomainPageCount";
 
-    _logger.info("reading from '"+ inputFile + "'");
-    _logger.info("writing to '"+ outputPath + "'");
+    _logger.info("Reading metadata data from '"+ inputFile + "'");
+    _logger.info("Writing output data to '"+ outputPath + "'");
 
     // Set which InputFormat class to use.
-    conf.setInputFormat(ArcInputFormat.class);
+    conf.setInputFormat(SequenceFileInputFormat.class);
 
     // Set the path where Hadoop should get the input data from.
     SequenceFileInputFormat.addInputPath(conf, new Path(inputFile));
@@ -168,15 +186,12 @@ public class ExampleArcWordCount extends Configured implements Tool {
     conf.setOutputValueClass(LongWritable.class);
 
     // Set which Mapper and Reducer classes to use.
-    conf.setMapperClass(ExampleArcWordCount.ExampleArcWordCountMapper.class);
+    conf.setMapperClass(ExampleMetadataDomainPageCount.ExampleMetadataDomainPageCountMapper.class);
     conf.setReducerClass(LongSumReducer.class);
 
-    // Allow up to 10% of input records to fail mapping.
-    conf.set("mapred.max.map.failures.percent", "10");
-
     // Optionally, set other job parameters.
-    conf.setNumMapTasks(1);
-    conf.setNumReduceTasks(1);
+    //conf.setNumMapTasks(1);
+    //conf.setNumReduceTasks(1);
     //conf.setMaxMapAttempts(2);
     //conf.setMaxTaskFailuresPerTracker(1);
 
@@ -194,7 +209,7 @@ public class ExampleArcWordCount extends Configured implements Tool {
    */
   public static void main(String[] args)
       throws Exception {
-    int res = ToolRunner.run(new Configuration(), new ExampleArcWordCount(), args);
+    int res = ToolRunner.run(new Configuration(), new ExampleMetadataDomainPageCount(), args);
     System.exit(res);
   }
 }
