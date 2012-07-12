@@ -8,6 +8,19 @@
   <property name="name" value="commoncrawl-examples" />
   <property name="version" value="1.0.0" />
 
+  <!-- include any user specific or environment specifc build properties -->
+  <property file="${user.home}/build.properties"/>
+  <property file="${basedir}/build.properties"/>
+
+  <!-- ensure that 'hadoop.path' is set -->
+  <fail message="Please define the 'hadoop.path' property in this 'build.properties' file">
+    <condition>
+      <not>
+        <isset property="hadoop.path"/>
+      </not>
+    </condition>
+  </fail>
+
   <property name="lib"   location="lib"  />
   <property name="src"   location="src"  />
   <property name="build" location="build"/>
@@ -18,10 +31,15 @@
     <mkdir dir="${build}"/>
   </target>
 
-  <target name="compile" depends="init" description="compile the source" >
-    <javac srcdir="${src}" destdir="${build}">
+  <target name="compile" depends="init"
+          description="compile the source" >
+    <javac srcdir="${src}" destdir="${build}" debug="on" debuglevel="lines,vars,source">
       <classpath>
         <pathelement path="${classpath}"/>
+        <fileset dir="${hadoop.path}">
+          <include name="**/hadoop-core-*.jar"/>
+          <include name="**/log4j-*.jar"/>
+        </fileset>
         <fileset dir="lib">
           <include name="**/*.jar"/>
         </fileset>
@@ -30,25 +48,20 @@
   </target>
 
   <target name="dist" depends="compile"
-    description="generate the distribution" >
-
+          description="generate the distribution" >
     <mkdir dir="${dist}/lib"/>
     <mkdir dir="${build}/lib"/>
 
     <jar jarfile="${dist}/lib/${name}-${version}.jar" basedir="${build}">
       <zipfileset dir="lib" prefix="lib" >
-        <include name="commoncrawl-*.jar" />
-        <include name="gson-*.jar" />
-        <include name="guava-*.jar" />
-        <include name="httpcore-*.jar" />
-        <include name="jsoup-*.jar" />
+        <include name="**/*.jar" />
       </zipfileset>
     </jar>
 
   </target>
 
   <target name="clean"
-        description="clean up" >
+          description="clean up" >
     <!-- Delete the ${build} and ${dist} directory trees -->
     <delete dir="${build}"/>
     <delete dir="${dist}"/>
