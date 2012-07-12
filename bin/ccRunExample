@@ -1,0 +1,235 @@
+#!/bin/bash -aeu
+
+HDFS_LOCAL_HOSTNAME="cc-dev-crwl-001.ccrwl.net"
+#HDFS_LOCAL_HOSTNAME="localhost"
+MAIN_JAR="commoncrawl-examples-1.0.0.jar"
+EXAMPLES_PATH="src/java/org/commoncrawl/examples"
+EXAMPLES_PKG="org.commoncrawl.examples"
+
+BASE_PATH=`dirname $0`"/.."
+BASE_PATH=`cd ${BASE_PATH}; pwd`
+
+LOCAL_JAR_PATH="${BASE_PATH}/dist/lib"
+
+usage() {
+  echo ""
+  echo "$(basename $0) [ LocalHadoop | AmazonEMR ] [ ExampleName ] ( S3Bucket )"
+  echo ""
+  echo "Please pass in one of the following examples: "
+  echo ""
+  ls ${BASE_PATH}/${EXAMPLES_PATH} | sed 's/\.java$//'
+  echo ""
+  exit 1
+}
+
+echo 
+echo "-----------------------------------------------------------------"
+echo "* "
+echo "* Common Crawl Example Library Runner"
+echo "* "
+echo "-----------------------------------------------------------------"
+
+if [ ! -r ~/.awssecret ]; then
+  echo ""
+  echo "ERROR: Please create a readable '.awssecret' file in your home directory."
+  echo ""
+  echo "The first line should be your AWS Access ID."
+  echo ""
+  echo "The second line should be your AWS Secret Key."
+  echo ""
+  exit 1
+fi
+
+AWS_ACCESS_ID=$(head -n 1 ~/.awssecret)
+AWS_SECRET_KEY=$(tail -n 1 ~/.awssecret)
+
+if [ ! -e ${LOCAL_JAR_PATH}/${MAIN_JAR} ]; then
+  echo ""
+  echo "ERROR: Please run the command 'ant' to build '${MAIN_JAR}' before attempting to run an example."
+  echo ""
+  exit 1
+fi
+
+# run the example provided on the command line
+if [ $# -lt 2 ]; then
+  usage
+fi
+
+RUN_TYPE="$1"
+EXAMPLE="$2"
+
+# run the selected example
+if [ ! -f ${BASE_PATH}/${EXAMPLES_PATH}/${EXAMPLE}.java ]; then
+  echo ""
+  echo "ERROR: Cannot run example '${EXAMPLE}' - not found."
+  echo ""
+  echo "Please run one of the following:"
+  echo ""
+  ls ${BASE_PATH}/${EXAMPLES_PATH} | sed 's/\.java$//'
+  echo ""
+  exit 1
+fi
+
+if [ "${RUN_TYPE}" = "AmazonEMR" ]; then
+
+  if [ $# -lt 3 ]; then
+    echo ""
+    echo "ERROR: To run an Amazon Elastic MapReduce job, you must supply an S3 bucket "
+    echo "       that you have permissions to write files to."
+    echo ""
+    usage
+  fi
+
+  S3_USER_BUCKET="$3"
+
+ #echo ""
+ #echo "ERROR: Apologies - this script is not yet ready to run."
+ #exit 1
+
+  EMR_JAR_PATH="${S3_USER_BUCKET}/emr/jars"
+  EMR_LOG_PATH="${S3_USER_BUCKET}/emr/logs"
+  EMR_OUTPUT_PATH="${S3_USER_BUCKET}/emr/output/${EXAMPLE}"
+
+  echo "* "
+  echo "* Uploading JAR + Config to S3 '${EMR_JAR_PATH}'"
+  echo "* "
+  echo aws put ${EMR_JAR_PATH}/${MAIN_JAR} ${LOCAL_JAR_PATH}/${MAIN_JAR}
+  aws put ${EMR_JAR_PATH}/${MAIN_JAR} ${LOCAL_JAR_PATH}/${MAIN_JAR}
+  echo ""
+
+  LOCAL_OUTPUT_PATH="${BASE_PATH}/output/${EXAMPLE}.tsv"
+
+  CORE_TYPE="c1.medium"
+  TASK_TYPE="m1.xlarge"
+  INSTANCES=3
+
+  TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+  JOBNAME="Common_Crawl_${EXAMPLE}__${TIMESTAMP}"
+
+  echo "-----------------------------------------------------------------"
+  echo "* "
+  echo "* Running Example '${EXAMPLE}'"
+  echo "* "
+  echo "* Starting Amazon Elastic MapReduce Job"
+  echo "* "
+  echo "-----------------------------------------------------------------"
+
+  # if the line breaks don't work, join the following lines and remove all '\'
+  echo /opt/aws/emr/elastic-mapreduce --create --plain-output --name "${JOBNAME}" \
+    --num-instances "${INSTANCES}" --master-instance-type "${CORE_TYPE}" --slave-instance-type "${TASK_TYPE}" \
+    --jar "s3n://${EMR_JAR_PATH}/${MAIN_JAR}" --step-name "Run_${EXAMPLE}" \
+    --log-uri "s3n://${EMR_LOG_PATH}" \
+    --main-class "${EXAMPLES_PKG}.${EXAMPLE}" \
+    --verbose --arg "s3n://${EMR_OUTPUT_PATH}" \
+    --access-id "********" --private-key "********"
+  echo ""
+
+  /opt/aws/emr/elastic-mapreduce --create --plain-output --name "${JOBNAME}" \
+    --num-instances "${INSTANCES}" --master-instance-type "${CORE_TYPE}" --slave-instance-type "${TASK_TYPE}" \
+    --jar "s3n://${EMR_JAR_PATH}/${MAIN_JAR}" --step-name "Run_${EXAMPLE}" \
+    --log-uri "s3n://${EMR_LOG_PATH}" \
+    --main-class "${EXAMPLES_PKG}.${EXAMPLE}" \
+    --verbose --arg "s3n://${EMR_OUTPUT_PATH}" \
+    --access-id "${AWS_ACCESS_ID}" --private-key "${AWS_SECRET_KEY}" \
+    > /tmp/emr-$$.out 2>&1
+
+  RC=$?
+
+  cat /tmp/emr-$$.out
+
+  if [ $RC -ne 0 ]; then
+    echo "WARNING: Amazon EMR returned non-zero status code: $RC"
+  fi
+
+  EMR_JOB_ID=$(tail -n 1 /tmp/emr-$$.out | grep "^j-")
+
+  if [ -z "${EMR_JOB_ID}" ]; then
+    echo "WARNING: Unable to determine EMR Job ID"
+    EMR_JOB_ID="[Amazon EMR Job ID]"
+  fi
+
+  echo ""
+  echo "-----------------------------------------------------------------"
+  echo "* "
+  echo "* Your Amazon Elastic MapReduce job has been launched. "
+  echo "* "
+  echo "* Please look for '${JOBNAME}'"
+  echo "* in your AWS Web Console."
+  echo "* "
+  echo "* Once the job has completed, run the following command to view "
+  echo "* log files: "
+  echo "* "
+  echo "*   hadoop dfs -get s3n://${EMR_LOG_PATH}/${EMR_JOB_ID} ${BASE_PATH}/logs"
+  echo "* "
+  echo "* and the following command to pull down the output files: "
+  echo "* "
+  echo "*   hadoop fs -getmerge s3n://${EMR_OUTPUT_PATH} ${LOCAL_OUTPUT_PATH}"
+  echo "* "
+  echo "-----------------------------------------------------------------"
+
+  mkdir -p ${BASE_PATH}/logs
+
+  rm /tmp/emr-$$.out
+
+  exit ${RC}
+
+fi
+
+if [ "${RUN_TYPE}" = "LocalHadoop" ]; then
+
+  MAPRED_OUTPUT_PATH="hdfs://${HDFS_LOCAL_HOSTNAME}/user/${USER}/output/${EXAMPLE}"
+  LOCAL_OUTPUT_PATH="${BASE_PATH}/output/${EXAMPLE}.tsv"
+
+  echo "* "
+  echo "* Running Example '${EXAMPLE}'"
+  echo "* "
+  echo "-----------------------------------------------------------------"
+  echo hadoop jar ${LOCAL_JAR_PATH}/${MAIN_JAR} ${EXAMPLES_PKG}.${EXAMPLE} \
+    ${MAPRED_OUTPUT_PATH} ${BASE_PATH}/conf/mapred.xml
+  echo ""
+
+  hadoop jar ${LOCAL_JAR_PATH}/${MAIN_JAR} ${EXAMPLES_PKG}.${EXAMPLE} \
+    -Dfs.s3.awsAccessKeyId="${AWS_ACCESS_ID}"  -Dfs.s3.awsSecretAccessKey="${AWS_SECRET_KEY}" \
+    -Dfs.s3n.awsAccessKeyId="${AWS_ACCESS_ID}" -Dfs.s3n.awsSecretAccessKey="${AWS_SECRET_KEY}" \
+    ${MAPRED_OUTPUT_PATH} ${BASE_PATH}/conf/mapred.xml 
+
+  RC=$?
+
+  if [ $RC -ne 0 ]; then
+    echo "-----------------------------------------------------------------"
+    echo "* "
+    echo "* There was a problem running '${EXAMPLE}'."
+    echo "* "
+    echo "* Please contact 'info@commoncrawl.org'."
+    echo "* "
+    echo "-----------------------------------------------------------------"
+    exit $RC
+  fi
+
+  echo "-----------------------------------------------------------------"
+  echo "* "
+  echo "* Your MapReduce job '${EXAMPLE}' completed successfully!"
+  echo "* "
+  echo "* Copying output to the local file system:"
+  echo "* "
+  echo 
+  rm -f ${LOCAL_OUTPUT_PATH}
+  echo hadoop fs -getmerge ${MAPRED_OUTPUT_PATH} ${LOCAL_OUTPUT_PATH}
+  hadoop fs -getmerge ${MAPRED_OUTPUT_PATH} ${LOCAL_OUTPUT_PATH}
+  echo
+  echo "* "
+  echo "* You can see the results of your job here:"
+  echo "* "
+  echo "*   ${LOCAL_OUTPUT_PATH}"
+  echo "* "
+  echo "* Here are the first 15 lines of output:"
+  echo "* "
+  echo "-------------------------------------------------------------"
+  echo 
+  head -n 15 ${LOCAL_OUTPUT_PATH}
+  echo 
+
+  exit 0
+
+fi
+
