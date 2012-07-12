@@ -17,8 +17,10 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.PathFilter;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapred.FileInputFormat;
 import org.apache.hadoop.mapred.FileOutputFormat;
 import org.apache.hadoop.mapred.InputSplit;
 import org.apache.hadoop.mapred.JobClient;
@@ -51,7 +53,11 @@ import com.google.common.net.InternetDomainName;
  * 
  * @author Chris Stephens <chris@commoncrawl.org>
  */
-public class ExampleMetadataDomainPageCount extends Configured implements Tool {
+public class ExampleMetadataDomainPageCount
+    extends    Configured
+    implements Tool {
+
+  private static final Logger LOG = Logger.getLogger(ExampleMetadataDomainPageCount.class);
 
   /**
    * Mapping class that produces the normalized domain name and a count of '1'
@@ -125,7 +131,32 @@ public class ExampleMetadataDomainPageCount extends Configured implements Tool {
     }
   }
 
-  private static final Logger _logger = Logger.getLogger(ExampleMetadataDomainPageCount.class);
+
+  /**
+   * Hadoop FileSystem PathFilter for ARC files, allowing users to limit the
+   * number of files processed.
+   *
+   * @author Chris Stephens <chris@commoncrawl.org>
+   */
+  public static class SampleFilter
+      implements PathFilter {
+
+    private static int count =         0;
+    private static int max   = 999999999;
+
+    public boolean accept(Path path) {
+
+      if (!path.getName().startsWith("metadata-"))
+        return false;
+
+      SampleFilter.count++;
+
+      if (SampleFilter.count > SampleFilter.max)
+        return false;
+
+      return true;
+    }
+  }
 
   /**
    * Implmentation of Tool.run() method, which builds and runs the Hadoop job.
@@ -138,74 +169,76 @@ public class ExampleMetadataDomainPageCount extends Configured implements Tool {
   public int run(String[] args)
       throws Exception {
 
+    String outputPath = null;
+    String configFile = null;
+
+    // Read the command line arguments.
+    if (args.length <  1)
+      throw new IllegalArgumentException("Example JAR must be passed an output path.");
+
+    outputPath = args[0];
+
+    if (args.length >= 2)
+      configFile = args[1];
+
+    // For this example, only look at a single metadata file.
+    String inputPath = "s3n://aws-publicdatasets/common-crawl/parse-output/segment/1331160113237/metadata-00009";
+ 
+    // Switch to this if you'd like to look at all metadata files.  May take many minutes just to read the file listing.
+  //String inputPath = "s3n://aws-publicdatasets/common-crawl/parse-output/segment/*/metadata-*";
+
+    // Read in any additional config parameters.
+    if (configFile != null) {
+      LOG.info("adding config parameters from '"+ configFile + "'");
+      this.getConf().addResource(configFile);
+    }
+
     // Creates a new job configuration for this Hadoop job.
-    JobConf conf = new JobConf(this.getConf());
+    JobConf job = new JobConf(this.getConf());
 
-    conf.setJarByClass(ExampleMetadataDomainPageCount.class);
+    job.setJarByClass(ExampleMetadataDomainPageCount.class);
 
-    // Set your Amazon S3 credentials.
-    BufferedReader in = new BufferedReader(new FileReader(System.getProperty("user.home") + File.separatorChar + ".awssecret"));
-    String awsAccessKeyId     = in.readLine();
-    String awsSecretAccessKey = in.readLine();
-    in.close();
-
-    conf.set("fs.s3.awsAccessKeyId",      awsAccessKeyId);
-    conf.set("fs.s3.awsSecretAccessKey",  awsSecretAccessKey);
-
-    conf.set("fs.s3n.awsAccessKeyId",     awsAccessKeyId);
-    conf.set("fs.s3n.awsSecretAccessKey", awsSecretAccessKey);
-
-    // Define the input and output paths for this example
-    String inputFile  = "s3n://aws-publicdatasets/common-crawl/parse-output/segment/1331160113237/metadata-00009";
-    String outputPath = "s3n://commoncrawl-dev/output/ExampleMetadataDomainPageCount";
-
-    _logger.info("Reading metadata data from '"+ inputFile + "'");
-    _logger.info("Writing output data to '"+ outputPath + "'");
-
-    // Set which InputFormat class to use.
-    conf.setInputFormat(SequenceFileInputFormat.class);
-
-    // Set the path where Hadoop should get the input data from.
-    SequenceFileInputFormat.addInputPath(conf, new Path(inputFile));
+    // Scan the provided input path for ARC files.
+    LOG.info("setting input path to '"+ inputPath + "'");
+    FileInputFormat.addInputPath(job, new Path(inputPath));
+    FileInputFormat.setInputPathFilter(job, SampleFilter.class);
 
     // Delete the output path directory if it already exists.
-    FileSystem fs = FileSystem.get(new URI("s3n://commoncrawl-dev"), conf);
+    LOG.info("clearing the output path at '" + outputPath + "'");
+
+    FileSystem fs = FileSystem.get(new URI(outputPath), job);
 
     if (fs.exists(new Path(outputPath)))
       fs.delete(new Path(outputPath), true);
 
-    // Set which OutputFormat class to use.
-    conf.setOutputFormat(TextOutputFormat.class);
-
     // Set the path where final output 'part' files will be saved.
-    TextOutputFormat.setOutputPath(conf, new Path(outputPath));
-    TextOutputFormat.setCompressOutput(conf, false);
+    LOG.info("setting output path to '" + outputPath + "'");
+    FileOutputFormat.setOutputPath(job, new Path(outputPath));
+    FileOutputFormat.setCompressOutput(job, false);
+
+    // Set which InputFormat class to use.
+    job.setInputFormat(SequenceFileInputFormat.class);
+
+    // Set which OutputFormat class to use.
+    job.setOutputFormat(TextOutputFormat.class);
 
     // Set the output data types.
-    conf.setOutputKeyClass(Text.class);
-    conf.setOutputValueClass(LongWritable.class);
+    job.setOutputKeyClass(Text.class);
+    job.setOutputValueClass(LongWritable.class);
 
     // Set which Mapper and Reducer classes to use.
-    conf.setMapperClass(ExampleMetadataDomainPageCount.ExampleMetadataDomainPageCountMapper.class);
-    conf.setReducerClass(LongSumReducer.class);
+    job.setMapperClass(ExampleMetadataDomainPageCount.ExampleMetadataDomainPageCountMapper.class);
+    job.setReducerClass(LongSumReducer.class);
 
-    // Optionally, set other job parameters.
-    //conf.setNumMapTasks(1);
-    //conf.setNumReduceTasks(1);
-    //conf.setMaxMapAttempts(2);
-    //conf.setMaxTaskFailuresPerTracker(1);
-
-    // Run the job.
-    RunningJob job = JobClient.runJob(conf);
-
-    if (job.isSuccessful())
+    if (JobClient.runJob(job).isSuccessful())
       return 0;
     else
       return 1;
   }
 
   /**
-   * Main entry point that uses the {@link ToolRunner} class to run the example Hadoop job.
+   * Main entry point that uses the {@link ToolRunner} class to run the example
+   * Hadoop job.
    */
   public static void main(String[] args)
       throws Exception {
@@ -213,3 +246,4 @@ public class ExampleMetadataDomainPageCount extends Configured implements Tool {
     System.exit(res);
   }
 }
+

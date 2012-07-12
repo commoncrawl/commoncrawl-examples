@@ -62,7 +62,8 @@ public class ExampleArcMicroformat
   private static final Logger LOG = Logger.getLogger(ExampleArcMicroformat.class);
 
   /**
-   * Mapper
+   * Maps incoming web documents to a list of Microformat 'itemtype' tags.
+   * Filters out any non-HTML pages.
    *
    * @author Chris Stephens <chris@commoncrawl.org>
    *
@@ -83,6 +84,7 @@ public class ExampleArcMicroformat
 
       try {
 
+        // just curious how many of each content type we've seen
         reporter.incrCounter(this._counterGroup, "Content Type - "+value.getContentType(), 1);
 
         if (!value.getContentType().contains("html")) {
@@ -90,16 +92,10 @@ public class ExampleArcMicroformat
           return;
         }
 
-        if (value.getContent().length >= (5*1024*1024)) {
-          System.out.println(key.toString()+": "+value.getContent().length);
-          reporter.incrCounter(this._counterGroup, "Skipped - Not HTML", 1);
-          return;
-        }
-
         // Count all HTML pages
         output.collect(new Text("[total pages processed]"), new LongWritable(1));
 
-        // Count all non-empty VideoObject microformats
+        // Count all 'itemtype' attributes referencing 'schema.org'
         Document doc = Jsoup.parse(new ByteArrayInputStream(value.getContent()), "US-ASCII", value.getURL());
 
         Elements mf = doc.select("[itemtype~=schema.org]");
