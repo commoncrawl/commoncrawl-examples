@@ -1,7 +1,6 @@
 #!/bin/bash -aeu
 
-HDFS_LOCAL_HOSTNAME="cc-dev-crwl-001.ccrwl.net"
-#HDFS_LOCAL_HOSTNAME="localhost"
+HDFS_LOCAL_HOSTNAME="localhost"
 MAIN_JAR="commoncrawl-examples-1.0.0.jar"
 EXAMPLES_PATH="src/java/org/commoncrawl/examples"
 EXAMPLES_PKG="org.commoncrawl.examples"
