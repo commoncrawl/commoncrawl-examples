@@ -18,8 +18,10 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.PathFilter;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapred.FileInputFormat;
 import org.apache.hadoop.mapred.FileOutputFormat;
 import org.apache.hadoop.mapred.InputSplit;
 import org.apache.hadoop.mapred.JobClient;
@@ -28,7 +30,6 @@ import org.apache.hadoop.mapred.Mapper;
 import org.apache.hadoop.mapred.MapReduceBase;
 import org.apache.hadoop.mapred.OutputCollector;
 import org.apache.hadoop.mapred.Reporter;
-import org.apache.hadoop.mapred.RunningJob;
 import org.apache.hadoop.mapred.SequenceFileInputFormat;
 import org.apache.hadoop.mapred.TextOutputFormat;
 import org.apache.hadoop.mapred.lib.LongSumReducer;
@@ -37,18 +38,17 @@ import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
 
 /**
- * An example showing how to use the Common Crawl 'metadata' files to quickly
- * gather high level information about the corpus' content.
+ * An example showing how to use the Common Crawl 'textData' files to efficiently
+ * work with Common Crawl corpus text content.
  * 
  * @author Chris Stephens <chris@commoncrawl.org>
  */
 public class ExampleTextWordCount extends Configured implements Tool {
 
-  private static final Logger _logger = Logger.getLogger(ExampleTextWordCount.class);
+  private static final Logger LOG = Logger.getLogger(ExampleTextWordCount.class);
 
   /**
-   * Parse and output all words contained within the displayed text of each
-   * page in the ARC files.
+   * Perform a simple word count mapping on text data from the Common Crawl corpus.
    */
   public static class ExampleTextWordCountMapper
       extends    MapReduceBase 
@@ -83,9 +83,35 @@ public class ExampleTextWordCount extends Configured implements Tool {
         }
       }
       catch (Exception ex) {
-        _logger.error("Caught Exception", ex);
+        LOG.error("Caught Exception", ex);
         reporter.incrCounter(this._counterGroup, "Exceptions", 1);
       }
+    }
+  }
+
+  /**
+   * Hadoop FileSystem PathFilter for ARC files, allowing users to limit the
+   * number of files processed.
+   *
+   * @author Chris Stephens <chris@commoncrawl.org>
+   */
+  public static class SampleFilter
+      implements PathFilter {
+
+    private static int count =         0;
+    private static int max   = 999999999;
+
+    public boolean accept(Path path) {
+
+      if (!path.getName().startsWith("textData-"))
+        return false;
+
+      SampleFilter.count++;
+
+      if (SampleFilter.count > SampleFilter.max)
+        return false;
+
+      return true;
     }
   }
 
@@ -100,77 +126,76 @@ public class ExampleTextWordCount extends Configured implements Tool {
   public int run(String[] args)
       throws Exception {
 
+    String outputPath = null;
+    String configFile = null;
+
+    // Read the command line arguments.
+    if (args.length <  1)
+      throw new IllegalArgumentException("Example JAR must be passed an output path.");
+
+    outputPath = args[0];
+
+    if (args.length >= 2)
+      configFile = args[1];
+
+    // For this example, only look at a single text file.
+    String inputPath = "s3n://aws-publicdatasets/common-crawl/parse-output/segment/1341690166822/textData-01666";
+ 
+    // Switch to this if you'd like to look at all text files.  May take many minutes just to read the file listing.
+  //String inputPath = "s3n://aws-publicdatasets/common-crawl/parse-output/segment/*/textData-*";
+
+    // Read in any additional config parameters.
+    if (configFile != null) {
+      LOG.info("adding config parameters from '"+ configFile + "'");
+      this.getConf().addResource(configFile);
+    }
+
     // Creates a new job configuration for this Hadoop job.
-    JobConf conf = new JobConf(this.getConf());
+    JobConf job = new JobConf(this.getConf());
 
-    conf.setJarByClass(ExampleTextWordCount.class);
+    job.setJarByClass(ExampleTextWordCount.class);
 
-    // Set your Amazon S3 credentials.
-    BufferedReader in = new BufferedReader(new FileReader(System.getProperty("user.home") + File.separatorChar + ".awssecret"));
-    String awsAccessKeyId     = in.readLine();
-    String awsSecretAccessKey = in.readLine();
-    in.close();
-
-    conf.set("fs.s3.awsAccessKeyId",      awsAccessKeyId);
-    conf.set("fs.s3.awsSecretAccessKey",  awsSecretAccessKey);
-
-    conf.set("fs.s3n.awsAccessKeyId",     awsAccessKeyId);
-    conf.set("fs.s3n.awsSecretAccessKey", awsSecretAccessKey);
-
-    // Define the input and output paths for this example
-    String inputFile  = "s3n://aws-publicdatasets/common-crawl/parse-output/segment/1341528314222/textData-01632";
-    String outputPath = "s3n://commoncrawl-dev/output/ExampleTextWordCount";
-
-    _logger.info("reading from '"+ inputFile + "'");
-    _logger.info("writing to '"+ outputPath + "'");
-
-    // Set which InputFormat class to use.
-    conf.setInputFormat(SequenceFileInputFormat.class);
-
-    // Set the path where Hadoop should get the input data from.
-    SequenceFileInputFormat.addInputPath(conf, new Path(inputFile));
+    // Scan the provided input path for ARC files.
+    LOG.info("setting input path to '"+ inputPath + "'");
+    FileInputFormat.addInputPath(job, new Path(inputPath));
+    FileInputFormat.setInputPathFilter(job, SampleFilter.class);
 
     // Delete the output path directory if it already exists.
-    FileSystem fs = FileSystem.get(new URI("s3n://commoncrawl-dev"), conf);
+    LOG.info("clearing the output path at '" + outputPath + "'");
+
+    FileSystem fs = FileSystem.get(new URI(outputPath), job);
 
     if (fs.exists(new Path(outputPath)))
       fs.delete(new Path(outputPath), true);
 
-    // Set which OutputFormat class to use.
-    conf.setOutputFormat(TextOutputFormat.class);
-
     // Set the path where final output 'part' files will be saved.
-    TextOutputFormat.setOutputPath(conf, new Path(outputPath));
-    TextOutputFormat.setCompressOutput(conf, false);
+    LOG.info("setting output path to '" + outputPath + "'");
+    FileOutputFormat.setOutputPath(job, new Path(outputPath));
+    FileOutputFormat.setCompressOutput(job, false);
+
+    // Set which InputFormat class to use.
+    job.setInputFormat(SequenceFileInputFormat.class);
+
+    // Set which OutputFormat class to use.
+    job.setOutputFormat(TextOutputFormat.class);
 
     // Set the output data types.
-    conf.setOutputKeyClass(Text.class);
-    conf.setOutputValueClass(LongWritable.class);
+    job.setOutputKeyClass(Text.class);
+    job.setOutputValueClass(LongWritable.class);
 
     // Set which Mapper and Reducer classes to use.
-    conf.setMapperClass(ExampleTextWordCount.ExampleTextWordCountMapper.class);
-    conf.setReducerClass(LongSumReducer.class);
+    job.setMapperClass(ExampleTextWordCount.ExampleTextWordCountMapper.class);
+    job.setReducerClass(LongSumReducer.class);
 
-    // Allow up to 10% of input records to fail mapping.
-    conf.set("mapred.max.map.failures.percent", "10");
-
-    // Optionally, set other job parameters.
-    conf.setNumMapTasks(1);
-    conf.setNumReduceTasks(1);
-    //conf.setMaxMapAttempts(2);
-    //conf.setMaxTaskFailuresPerTracker(1);
-
-    // Run the job.
-    RunningJob job = JobClient.runJob(conf);
-
-    if (job.isSuccessful())
+    if (JobClient.runJob(job).isSuccessful())
       return 0;
     else
       return 1;
   }
 
   /**
-   * Main entry point that uses the {@link ToolRunner} class to run the example Hadoop job.
+   * Main entry point that uses the {@link ToolRunner} class to run the example
+   * Hadoop job.
    */
   public static void main(String[] args)
       throws Exception {
@@ -178,3 +203,4 @@ public class ExampleTextWordCount extends Configured implements Tool {
     System.exit(res);
   }
 }
+

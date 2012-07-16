@@ -4,6 +4,7 @@ package org.commoncrawl.examples;
 import java.lang.IllegalArgumentException;
 import java.lang.Integer;
 import java.lang.Math;
+import java.lang.OutOfMemoryError;
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.DataOutputStream;
@@ -92,9 +93,15 @@ public class ExampleArcMicroformat
           return;
         }
 
+        // ensure sample instances have enough memory to parse HTML
+        if (value.getContent().length > (5 * 1024 * 1024)) {
+          reporter.incrCounter(this._counterGroup, "Skipped - HTML Too Long", 1);
+          return;
+        }
+
         // Count all HTML pages
         output.collect(new Text("[total pages processed]"), new LongWritable(1));
-
+ 
         // Count all 'itemtype' attributes referencing 'schema.org'
         Document doc = Jsoup.parse(new ByteArrayInputStream(value.getContent()), "US-ASCII", value.getURL());
 
@@ -108,8 +115,13 @@ public class ExampleArcMicroformat
           }
         }
       }
-      catch(Exception ex) {
-        LOG.error("Caught Exception", ex);
+      catch (Throwable e) {
+
+        // occassionally Jsoup parser runs out of memory ...
+        if (e.getClass().equals(OutOfMemoryError.class))
+          System.gc();
+
+        LOG.error("Caught Exception", e);
         reporter.incrCounter(this._counterGroup, "Skipped - Exception Thrown", 1);
       }
     }
@@ -165,7 +177,7 @@ public class ExampleArcMicroformat
       configFile = args[1];
 
     // For this example, only look at a single ARC files.
-    String inputPath   = "s3n://aws-publicdatasets/common-crawl/parse-output/segment/1341690167474/1341752183830_775.arc.gz";
+    String inputPath   = "s3n://aws-publicdatasets/common-crawl/parse-output/segment/1341690164240/1341817173109_4.arc.gz";
  
     // Switch to this if you'd like to look at all ARC files.  May take many minutes just to read the file listing.
   //String inputPath   = "s3n://aws-publicdatasets/common-crawl/parse-output/segment/*/*.arc.gz";

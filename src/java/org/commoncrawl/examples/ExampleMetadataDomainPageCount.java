@@ -29,7 +29,6 @@ import org.apache.hadoop.mapred.Mapper;
 import org.apache.hadoop.mapred.MapReduceBase;
 import org.apache.hadoop.mapred.OutputCollector;
 import org.apache.hadoop.mapred.Reporter;
-import org.apache.hadoop.mapred.RunningJob;
 import org.apache.hadoop.mapred.SequenceFileInputFormat;
 import org.apache.hadoop.mapred.TextOutputFormat;
 import org.apache.hadoop.mapred.lib.LongSumReducer;
@@ -182,7 +181,7 @@ public class ExampleMetadataDomainPageCount
       configFile = args[1];
 
     // For this example, only look at a single metadata file.
-    String inputPath = "s3n://aws-publicdatasets/common-crawl/parse-output/segment/1331160113237/metadata-00009";
+    String inputPath = "s3n://aws-publicdatasets/common-crawl/parse-output/segment/1341690166822/metadata-01849";
  
     // Switch to this if you'd like to look at all metadata files.  May take many minutes just to read the file listing.
   //String inputPath = "s3n://aws-publicdatasets/common-crawl/parse-output/segment/*/metadata-*";

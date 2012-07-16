@@ -7,8 +7,4 @@
     <name>mapred.max.map.failures.percent</name>
     <value>10</value>
   </property>
-  <property>
-    <name>mapred.task.timeout</name>
-    <value>900000</value>
-  </property>
 </configuration>
