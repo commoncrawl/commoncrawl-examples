@@ -33,7 +33,7 @@
 
   <target name="compile" depends="init"
           description="compile the source" >
-    <javac srcdir="${src}" destdir="${build}" debug="on" debuglevel="lines,vars,source">
+    <javac srcdir="${src}" destdir="${build}" debug="on" debuglevel="lines,vars,source" target="1.6">
       <classpath>
         <pathelement path="${classpath}"/>
         <fileset dir="${hadoop.path}">

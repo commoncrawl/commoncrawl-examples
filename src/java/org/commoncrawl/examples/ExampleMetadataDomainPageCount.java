@@ -66,8 +66,6 @@ public class ExampleMetadataDomainPageCount
       extends    MapReduceBase
       implements Mapper<Text, Text, Text, LongWritable> {
 
-    private static final Logger _logger = Logger.getLogger(ExampleMetadataDomainPageCount.class);
-
     // create a counter group for Mapper-specific statistics
     private final String _counterGroup = "Custom Mapper Counters";
 
@@ -124,7 +122,7 @@ public class ExampleMetadataDomainPageCount
         throw ex;
       }
       catch (Exception ex) {
-        _logger.error("Caught Exception", ex); 
+        LOG.error("Caught Exception", ex); 
         reporter.incrCounter(this._counterGroup, "Exceptions", 1);
       }
     }
@@ -184,7 +182,7 @@ public class ExampleMetadataDomainPageCount
     String inputPath = "s3n://aws-publicdatasets/common-crawl/parse-output/segment/1341690166822/metadata-01849";
  
     // Switch to this if you'd like to look at all metadata files.  May take many minutes just to read the file listing.
-  //String inputPath = "s3n://aws-publicdatasets/common-crawl/parse-output/segment/*/metadata-*";
+    // String inputPath = "s3n://aws-publicdatasets/common-crawl/parse-output/segment/*/metadata-*";
 
     // Read in any additional config parameters.
     if (configFile != null) {
@@ -200,7 +198,9 @@ public class ExampleMetadataDomainPageCount
     // Scan the provided input path for ARC files.
     LOG.info("setting input path to '"+ inputPath + "'");
     FileInputFormat.addInputPath(job, new Path(inputPath));
-    FileInputFormat.setInputPathFilter(job, SampleFilter.class);
+
+    // Optionally, you can add in a custom input path filter
+    // FileInputFormat.setInputPathFilter(job, SampleFilter.class);
 
     // Delete the output path directory if it already exists.
     LOG.info("clearing the output path at '" + outputPath + "'");

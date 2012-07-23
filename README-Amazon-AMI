@@ -1,0 +1,62 @@
+
+Common Crawl Quick Start Amazon AMI
+-----------------------------------
+
+Welcome to the Common Crawl Quick Start Amazon AMI!
+
+The Common Crawl corpus is a copy of billions of web documents and their
+metadata, stored as an Amazon S3 Public Dataset and available for analysis.
+
+Here are the steps you need to follow to run your first job against the 
+Common Crawl corpus:
+
+1. Find your Amazon Access Credentials (Amazon Access ID & Amazon Secret Key)
+and save as two lines in this file:
+
+  /home/ec2-user/.awssecret
+
+For example:
+
+  JLASKHJFLKDHJLFKSJDF
+  DFHSDJHhhoiaGKHDFa6sd42rwuhfapgfuAGSDAjh 
+
+Change the permissions of this file to read/write only by 'ec2-user':
+
+  chmod 600 /home/ec2-user/.awssecret
+
+Now you can use Tim Kay's AWS Command Line tool.  Try this:
+
+  aws ls -1 aws-publicdatasets/common-crawl/parse-output/segment/1341690167474/metadata-
+
+2. Move to the 'commoncrawl-examples' directory.  Make sure it is up-to-date:
+
+  cd ~/commoncrawl-examples; git pull
+
+3. Compile the latest example code:
+
+  ant
+
+4. Run an example!  Decide whether you want to run an example on the small local
+Hadoop instance on on Amazon Elastic MapReduce.
+
+Run this command to see your options:
+
+  bin/ccRunExample
+
+then go ahead and run an example:
+
+  bin/ccRunExample LocalHadoop ExampleMetadataDomainPageCount
+
+then look at the code:
+
+  nano src/java/org/commoncrawl/examples/ExampleMetadataDomainPageCount.java
+
+Note:  You need to have your own Amazon S3 bucket to run Amazon Elastic
+MapReduce jobs.
+
+-----------------------------------
+
+You can read all of this again in $HOME/commoncrawl-examples/README.
+
+Have fun!
+
