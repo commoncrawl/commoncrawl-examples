@@ -1,0 +1,89 @@
+common_crawl_types
+
+Ben Nagy wrote the original code for this project, and posted it inline to the
+Common Crawl mailing list. I tidied it up and wrote a how-to guide:
+http://petewarden.typepad.com/searchbrowser/2012/03/twelve-steps-to-running-your-ruby-code-across-five-billion-web-pages.html
+
+Ben's original message is below.
+
+Pete Warden, pete@petewarden.com
+
+-------------------------------------------------------------------
+
+Hi,
+
+So I found this a bit of a pain, so I thought I'd share. If you want
+to mess with the Common Crawl stuff but don't feel like learning Java,
+this might be for you.
+
+I'm sure that this could be easily adapted for other streaming
+languages, once you work out how to read requester-pays buckets.
+
+First up, see this:
+http://arfon.org/getting-started-with-elastic-mapreduce-and-hadoop-streaming
+
+Which has basic information and nice screenshots about EMR Streaming,
+setting up the job, bootstrapping and such.
+
+To install the AWS Ruby SDK on an EMR instance you'll need to
+bootstrap some stuff. Some of the packages might not be necessary, but
+it was a bit of a pain to trim down from a working set of basic
+packages.
+
+(see setup.sh)
+
+OK, now we're ready for the mapper. This example just collects
+mimetypes and URL extensions. The key bits are the ArcFile class and
+the monkeypatch to make requester-pays work. I'm not particularly
+proud of this monkeypatch, by the way, but the SDK code is a bit
+baffling, and it looked like too much work to patch it properly.
+
+This mapper expects a file manifest as input, one arc.gz url to read
+per line. By doing this you avoid the problem of weird splits, or
+having hadoop automatically trying to gunzip the file and failing. It
+should look like:
+
+s3://commoncrawl-crawl-002/2010/09/24/9/1285380159663_9.arc.gz
+s3://commoncrawl-crawl-002/2010/09/24/9/1285380179515_9.arc.gz
+s3://commoncrawl-crawl-002/2010/09/24/9/1285380199363_9.arc.gz
+
+You can get those names with the SDK, once you add the monkeypatch
+below, or with a patched version of s3cmd ls, the instructions for
+which have been posted here before.
+
+(see extension_map.rb)
+
+And finally, a trivial reducer
+
+(see extension_reduce.rb)
+
+IMHO you only need one of these puppies, which you can achieve by
+adding '-D mapred.reduce.tasks=1' to your job args
+
+If it all worked you should get something like this in your output
+directory:
+
+text/html                               : 4365
+text/html                .html          : 4256
+text/xml                                : 43
+text/html                .aspx          : 16
+text/html                .com           : 2
+text/plain               .txt           : 1
+
+Except with more entries, that is just an example based on one file.
+
+For those interested in costs / timings, I finished 2010/9/24/9 (790
+files) in 5h57m, or 30 normalised instance hours of m1.small, with 1
+master and 4 core instances. The same job with 1 m1.small master and
+2x cc1.4xlarge core was done in 1h31m, for 66 normalised instance
+hours. I'll let you do your individual maths and avoid drawing any
+conclusions. If anyone has additional (solid) performance data
+comparing various cluster configs for identical workloads then that
+might be useful. As an aside, my map tasks took from 9 minutes to 45
+minutes to complete, but the average was probably ~33 (eyeball).
+
+Anyway, hope this helps someone.
+
+Cheers,
+
+ben
