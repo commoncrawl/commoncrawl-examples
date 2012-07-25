@@ -28,6 +28,12 @@ Now you can use Tim Kay's AWS Command Line tool.  Try this:
 
   aws ls -1 aws-publicdatasets/common-crawl/parse-output/segment/1341690167474/metadata-
 
+If you are planning on using the local Hadoop cluster, you should also consider
+setting these properties in /etc/hadoop/hadoop-site.xml:
+
+  fs.s3n.awsAccessKeyId
+  fs.s3n.awsSecretAccessKey
+
 2. Move to the 'commoncrawl-examples' directory.  Make sure it is up-to-date:
 
   cd ~/commoncrawl-examples; git pull

@@ -104,12 +104,12 @@ if [ "${RUN_TYPE}" = "AmazonEMR" ]; then
   CORE_TYPE="m1.large"     # consider using CORE_TYPE="m2.2xlarge"
 
   # We've found the 'c1.xlarge' instance type to be most efficient for EMR
-	# jobs - though we are open to suggestions!
+  # jobs - though we are open to suggestions!
   TASK_TYPE="c1.xlarge"    # EMR = +$0.12 per instance hour
 
   INSTANCES=4
 
-	BID="0.08"
+  BID="0.08"
 
   TIMESTAMP=$(date +%Y%m%d_%H%M%S)
   JOBNAME="Common_Crawl_${EXAMPLE}__${TIMESTAMP}"
@@ -124,27 +124,27 @@ if [ "${RUN_TYPE}" = "AmazonEMR" ]; then
 
   # Add in this option to specify a certain number of reducers:
   #
-  #	--arg "-Dmapred.reduce.tasks=${REDUCERS}" \
+  #  --arg "-Dmapred.reduce.tasks=${REDUCERS}" \
   #
 
   # if the line breaks don't work, join the following lines and remove all '\'
   echo \
-	/opt/aws/emr/elastic-mapreduce --create --plain-output --name "${JOBNAME}" --ami-version="2.1.1" --hadoop-version="0.20.205" \
+  /opt/aws/emr/elastic-mapreduce --create --plain-output --name "${JOBNAME}" --ami-version="2.1.1" --hadoop-version="0.20.205" \
     --jar "s3n://${EMR_JAR_PATH}/${MAIN_JAR}" --step-name "Run_${EXAMPLE}" \
     --log-uri "s3n://${EMR_LOG_PATH}" \
     --main-class "${EXAMPLES_PKG}.${EXAMPLE}" --verbose \
     --access-id "********" --private-key "********" \
     --key-pair-file /home/ec2-user/commoncrawl-examples/cc-dev.pem \
-		--arg "-Dmapreduce.job.split.metainfo.maxsize=-1" \
-		--arg "s3n://${EMR_OUTPUT_PATH}" \
-		--instance-group master --instance-type "${MASTER_TYPE}" --instance-count 1 \
-		--instance-group core   --instance-type "${CORE_TYPE}"   --instance-count 1 \
-		--instance-group task   --instance-type "${TASK_TYPE}"   --instance-count ${INSTANCES} --bid-price ${BID}
+    --arg "-Dmapreduce.job.split.metainfo.maxsize=-1" \
+    --arg "s3n://${EMR_OUTPUT_PATH}" \
+    --instance-group master --instance-type "${MASTER_TYPE}" --instance-count 1 \
+    --instance-group core   --instance-type "${CORE_TYPE}"   --instance-count 1 \
+    --instance-group task   --instance-type "${TASK_TYPE}"   --instance-count ${INSTANCES} --bid-price ${BID}
   echo ""
 
-	set +e
+  set +e
 
-	THIS_PID=$$
+  THIS_PID=$$
 
   /opt/aws/emr/elastic-mapreduce --create --plain-output --name "${JOBNAME}" --ami-version="2.1.1" --hadoop-version="0.20.205" \
     --jar "s3n://${EMR_JAR_PATH}/${MAIN_JAR}" --step-name "Run_${EXAMPLE}" \
@@ -152,24 +152,25 @@ if [ "${RUN_TYPE}" = "AmazonEMR" ]; then
     --main-class "${EXAMPLES_PKG}.${EXAMPLE}" --verbose \
     --access-id "${AWS_ACCESS_ID}" --private-key "${AWS_SECRET_KEY}" \
     --key-pair-file /home/ec2-user/commoncrawl-examples/cc-dev.pem \
-		--arg "-Dmapreduce.job.split.metainfo.maxsize=-1" \
-		--arg "s3n://${EMR_OUTPUT_PATH}" \
-		--instance-group master --instance-type "${MASTER_TYPE}" --instance-count 1 \
-		--instance-group core   --instance-type "${CORE_TYPE}"   --instance-count 1 \
-		--instance-group task   --instance-type "${TASK_TYPE}"   --instance-count ${INSTANCES} --bid-price ${BID} \ 
-      > /tmp/emr-${THIS_PID}.out 2>&1
+    --arg "-Dmapreduce.job.split.metainfo.maxsize=-1" \
+    --arg "s3n://${EMR_OUTPUT_PATH}" \
+    --instance-group master --instance-type "${MASTER_TYPE}" --instance-count 1 \
+    --instance-group core   --instance-type "${CORE_TYPE}"   --instance-count 1 \
+    --instance-group task   --instance-type "${TASK_TYPE}"   --instance-count ${INSTANCES} --bid-price ${BID} \ 
+      > ${HOME}/.emr-${THIS_PID}.out 2>&1
 
   RC=$?
 
-  cat /tmp/emr-${THIS_PID}.out
+  echo "** dumping the contents of ${HOME}/.emr-${THIS_PID}.out"
+  cat ${HOME}/.emr-${THIS_PID}.out
 
   if [ $RC -ne 0 ]; then
     echo "WARNING: Amazon EMR returned non-zero status code: $RC"
   fi
 
-  EMR_JOB_ID=$(tail -n 3 /tmp/emr-${THIS_PID}.out | fgrep "j-")
+  EMR_JOB_ID=$(tail -n 3 ${HOME}/.emr-${THIS_PID}.out | fgrep "j-")
 
-	set -e
+  set -e
 
   if [ -z "${EMR_JOB_ID}" ]; then
     echo "WARNING: Unable to determine EMR Job ID"
