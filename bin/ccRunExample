@@ -81,10 +81,6 @@ if [ "${RUN_TYPE}" = "AmazonEMR" ]; then
 
   S3_USER_BUCKET="$3"
 
- #echo ""
- #echo "ERROR: Apologies - this script is not yet ready to run."
- #exit 1
-
   EMR_JAR_PATH="${S3_USER_BUCKET}/emr/jars"
   EMR_LOG_PATH="${S3_USER_BUCKET}/emr/logs"
   EMR_OUTPUT_PATH="${S3_USER_BUCKET}/emr/output/${EXAMPLE}"
@@ -132,10 +128,10 @@ if [ "${RUN_TYPE}" = "AmazonEMR" ]; then
   /opt/aws/emr/elastic-mapreduce --create --plain-output --name "${JOBNAME}" --ami-version="2.1.1" --hadoop-version="0.20.205" \
     --jar "s3n://${EMR_JAR_PATH}/${MAIN_JAR}" --step-name "Run_${EXAMPLE}" \
     --log-uri "s3n://${EMR_LOG_PATH}" \
-    --main-class "${EXAMPLES_PKG}.${EXAMPLE}" --verbose \
+    --main-class "${EXAMPLES_PKG}.${EXAMPLE}" \
     --access-id "********" --private-key "********" \
-    --key-pair-file /home/ec2-user/commoncrawl-examples/cc-dev.pem \
     --arg "-Dmapreduce.job.split.metainfo.maxsize=-1" \
+    --arg "-Dmapred.max.map.failures.percent=50" \
     --arg "s3n://${EMR_OUTPUT_PATH}" \
     --instance-group master --instance-type "${MASTER_TYPE}" --instance-count 1 \
     --instance-group core   --instance-type "${CORE_TYPE}"   --instance-count 1 \
@@ -146,31 +142,25 @@ if [ "${RUN_TYPE}" = "AmazonEMR" ]; then
 
   THIS_PID=$$
 
-  /opt/aws/emr/elastic-mapreduce --create --plain-output --name "${JOBNAME}" --ami-version="2.1.1" --hadoop-version="0.20.205" \
+  EMR_JOB_ID=$(/opt/aws/emr/elastic-mapreduce --create --plain-output --name "${JOBNAME}" --ami-version="2.1.1" --hadoop-version="0.20.205" \
     --jar "s3n://${EMR_JAR_PATH}/${MAIN_JAR}" --step-name "Run_${EXAMPLE}" \
     --log-uri "s3n://${EMR_LOG_PATH}" \
-    --main-class "${EXAMPLES_PKG}.${EXAMPLE}" --verbose \
+    --main-class "${EXAMPLES_PKG}.${EXAMPLE}" \
     --access-id "${AWS_ACCESS_ID}" --private-key "${AWS_SECRET_KEY}" \
-    --key-pair-file /home/ec2-user/commoncrawl-examples/cc-dev.pem \
     --arg "-Dmapreduce.job.split.metainfo.maxsize=-1" \
+    --arg "-Dmapred.max.map.failures.percent=50" \
     --arg "s3n://${EMR_OUTPUT_PATH}" \
     --instance-group master --instance-type "${MASTER_TYPE}" --instance-count 1 \
     --instance-group core   --instance-type "${CORE_TYPE}"   --instance-count 1 \
-    --instance-group task   --instance-type "${TASK_TYPE}"   --instance-count ${INSTANCES} --bid-price ${BID} \ 
-      > ${HOME}/.emr-${THIS_PID}.out 2>&1
+    --instance-group task   --instance-type "${TASK_TYPE}"   --instance-count ${INSTANCES} --bid-price ${BID})
 
   RC=$?
 
-  echo "** dumping the contents of ${HOME}/.emr-${THIS_PID}.out"
-  cat ${HOME}/.emr-${THIS_PID}.out
+  set -e
 
   if [ $RC -ne 0 ]; then
     echo "WARNING: Amazon EMR returned non-zero status code: $RC"
   fi
-
-  EMR_JOB_ID=$(tail -n 3 ${HOME}/.emr-${THIS_PID}.out | fgrep "j-")
-
-  set -e
 
   if [ -z "${EMR_JOB_ID}" ]; then
     echo "WARNING: Unable to determine EMR Job ID"

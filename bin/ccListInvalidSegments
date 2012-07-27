@@ -1,0 +1,19 @@
+#!/bin/bash -aeu 
+
+echo ""
+echo "> gathering valid segments"
+hadoop fs -ls s3n://aws-publicdatasets/common-crawl/parse-output/valid_segments | cut -d" " -f 17- | sort > /tmp/cc-valid.txt
+sed -i "s/valid_segments/segment/" /tmp/cc-valid.txt
+
+echo "> gathering all segments published"
+hadoop fs -ls s3n://aws-publicdatasets/common-crawl/parse-output/segment        | cut -d" " -f 17- | sort > /tmp/cc-all.txt
+echo ""
+
+echo "* "
+echo "* List of Invalid Segments"
+echo "* "
+diff -b -w /tmp/cc-all.txt /tmp/cc-valid.txt | fgrep "segment" | sed "s/< /hadoop fs -rmr s3n:\/\/aws-publicdatasets/"
+
+#rm -f /tmp/cc-all.txt
+#rm -f /tmp/cc-valid.txt
+
