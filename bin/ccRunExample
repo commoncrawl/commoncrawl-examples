@@ -188,8 +188,6 @@ if [ "${RUN_TYPE}" = "AmazonEMR" ]; then
 
   mkdir -p ${BASE_PATH}/logs
 
-  rm /tmp/emr-$$.out
-
   exit ${RC}
 
 fi
