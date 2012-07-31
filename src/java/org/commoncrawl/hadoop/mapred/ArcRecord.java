@@ -22,12 +22,21 @@ import java.util.Date;
 import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.Writable;
 
-// Apache HTTP Components classes
-import org.apache.http.Header;
-import org.apache.http.message.BasicHeader;
-
 // Apache log4j classes
 import org.apache.log4j.Logger;
+
+// Apache HTTP Components classes
+import org.apache.http.Header;
+import org.apache.http.HttpException;
+import org.apache.http.HttpResponse;
+import org.apache.http.StatusLine;
+import org.apache.http.impl.DefaultHttpResponseFactory;
+import org.apache.http.impl.io.AbstractSessionInputBuffer;
+import org.apache.http.impl.io.DefaultHttpResponseParser;
+import org.apache.http.io.SessionInputBuffer;
+import org.apache.http.message.BasicHeader;
+import org.apache.http.message.BasicLineParser;
+import org.apache.http.params.BasicHttpParams;
 
 /**
  * An entry in an ARC (Internet Archive) data file.
@@ -54,17 +63,18 @@ public class ArcRecord
   private int    _contentLength;
 
   // ARC v2 metadata
-//private int    resultCode;
-//private String checksum;
-//private String location;
-//private long   offset;
-//private String filename;
+//private int    _resultCode;
+//private String _checksum;
+//private String _location;
+//private long   _offset;
+//private String _filename;
 
   // HTTP Status Code
   private int _httpStatusCode;
 
   // HTTP headers
   private ArrayList<Header> _httpHeaders;
+  private HttpResponse      _httpResponse;
 
   /**
    * <p>Creates an empty ARC record.</p>
@@ -463,5 +473,36 @@ public class ArcRecord
     return value;
   }
 
+  public static class ByteArraySessionInputBuffer
+      extends AbstractSessionInputBuffer {
+
+    public ByteArraySessionInputBuffer(byte[] buf) {
+      BasicHttpParams params = new BasicHttpParams();
+      this.init(new ByteArrayInputStream(buf), 4096, params);
+    }
+
+    public ByteArraySessionInputBuffer(byte[] buf, int offset, int length) {
+      BasicHttpParams params = new BasicHttpParams();
+      this.init(new ByteArrayInputStream(buf, offset, length), 4096, params);
+    }
+
+    public boolean isDataAvailable(int i) {
+      return true;
+    }
+  }
+
+  private void parseHttpResponse()
+      throws IOException, HttpException {
+
+    DefaultHttpResponseParser parser =
+      new DefaultHttpResponseParser(
+        new ByteArraySessionInputBuffer(this._content.getBytes()),
+        new BasicLineParser(),
+        new DefaultHttpResponseFactory(),
+        new BasicHttpParams()
+      );
+
+    this._httpResponse = (HttpResponse) parser.parse();
+  }
 }
 
