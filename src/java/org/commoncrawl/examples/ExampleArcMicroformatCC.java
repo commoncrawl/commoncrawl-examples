@@ -12,6 +12,7 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
 import java.net.URI;
+import java.util.Arrays;
 
 // log4j classes
 import org.apache.log4j.Logger;
@@ -43,26 +44,24 @@ import org.apache.hadoop.util.ToolRunner;
 
 // Common Crawl classes
 import org.commoncrawl.hadoop.mapred.ArcInputFormatCC;
-//import org.commoncrawl.hadoop.mapred.ArcRecord;
+import org.commoncrawl.hadoop.mapred.ArcRecordCC;
 
 // jsoup classes
-/*
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
-*/
 
 /**
  * An example showing how to analyze the Common Crawl ARC web content files.
  * 
  * @author Chris Stephens <chris@commoncrawl.org>
  */
-public class ExampleArcNewReader
+public class ExampleArcMicroformatCC
     extends    Configured
     implements Tool {
 
-  private static final Logger LOG = Logger.getLogger(ExampleArcNewReader.class);
+  private static final Logger LOG = Logger.getLogger(ExampleArcMicroformatCC.class);
 
   /**
    * Maps incoming web documents to a list of Microformat 'itemtype' tags.
@@ -75,21 +74,65 @@ public class ExampleArcNewReader
    * @author Manu Sporny 
    * @author Steve Salevan
    */
-  public static class ExampleArcNewReaderMapper
+  public static class ExampleArcMicroformatCCMapper
       extends    MapReduceBase
-      implements Mapper<Text, Text, Text, LongWritable> {
+      implements Mapper<Text, ArcRecordCC, Text, LongWritable> {
  
     // create a counter group for Mapper-specific statistics
     private final String _counterGroup = "Custom Mapper Counters";
 
-    public void map(Text key, Text value, OutputCollector<Text, LongWritable> output, Reporter reporter)
+    public void map(Text key, ArcRecordCC value, OutputCollector<Text, LongWritable> output, Reporter reporter)
         throws IOException {
 
       try {
-        LOG.info("ARC File Header Record:\n"+key.toString());
-        output.collect(value, new LongWritable(1));
+
+        // just curious how many of each content type we've seen
+        reporter.incrCounter(this._counterGroup, "Content Type - "+value.getContentType(), 1);
+
+        if (!value.getContentType().contains("html")) {
+          reporter.incrCounter(this._counterGroup, "Skipped - Not HTML", 1);
+          return;
+        }
+
+        // ensure sample instances have enough memory to parse HTML
+        if (value.getContentLength() > (5 * 1024 * 1024)) {
+          reporter.incrCounter(this._counterGroup, "Skipped - HTML Too Long", 1);
+          return;
+        }
+
+        // Count all HTML pages
+        output.collect(new Text("[total pages processed]"), new LongWritable(1));
+ 
+        // Count all 'itemtype' attributes referencing 'schema.org'
+        byte[] payload = value.getPayload();
+
+        output.collect(new Text("Example - Payload Length = "+payload.length), new LongWritable(1));
+
+        /*
+        Document doc = value.getParsedHTML();
+
+        if (doc == null) {
+          reporter.incrCounter(this._counterGroup, "Skipped - Unable to Parse HTML", 1);
+          return;
+        }
+
+        Elements mf = doc.select("[itemtype~=schema.org]");
+
+        if (mf.size() > 0) {
+          for (Element e : mf) {
+            if (e.hasAttr("itemtype")) {
+              output.collect(new Text(e.attr("itemtype").toLowerCase().trim()), new LongWritable(1));
+            }
+          }
+        }
+        */
       }
       catch (Throwable e) {
+
+        // occassionally Jsoup parser runs out of memory ...
+        if (e.getClass().equals(OutOfMemoryError.class))
+          System.gc();
+
         LOG.error("Caught Exception", e);
         reporter.incrCounter(this._counterGroup, "Skipped - Exception Thrown", 1);
       }
@@ -146,7 +189,7 @@ public class ExampleArcNewReader
       configFile = args[1];
 
     // For this example, only look at a single ARC files.
-    String inputPath   = "hdfs://localhost/user/ec2-user/input/*.arc.gz";
+    String inputPath   = "s3n://aws-publicdatasets/common-crawl/parse-output/segment/1341690164240/1341817173109_4.arc.gz";
  
     // Switch to this if you'd like to look at all ARC files.  May take many minutes just to read the file listing.
   //String inputPath   = "s3n://aws-publicdatasets/common-crawl/parse-output/segment/*/*.arc.gz";
@@ -160,7 +203,7 @@ public class ExampleArcNewReader
     // Creates a new job configuration for this Hadoop job.
     JobConf job = new JobConf(this.getConf());
 
-    job.setJarByClass(ExampleArcNewReader.class);
+    job.setJarByClass(ExampleArcMicroformatCC.class);
 
     // Scan the provided input path for ARC files.
     LOG.info("setting input path to '"+ inputPath + "'");
@@ -191,7 +234,7 @@ public class ExampleArcNewReader
     job.setOutputValueClass(LongWritable.class);
 
     // Set which Mapper and Reducer classes to use.
-    job.setMapperClass(ExampleArcNewReader.ExampleArcNewReaderMapper.class);
+    job.setMapperClass(ExampleArcMicroformatCC.ExampleArcMicroformatCCMapper.class);
     job.setReducerClass(LongSumReducer.class);
 
     if (JobClient.runJob(job).isSuccessful())
@@ -206,7 +249,7 @@ public class ExampleArcNewReader
    */
   public static void main(String[] args)
       throws Exception {
-    int res = ToolRunner.run(new Configuration(), new ExampleArcNewReader(), args);
+    int res = ToolRunner.run(new Configuration(), new ExampleArcMicroformatCC(), args);
     System.exit(res);
   }
 }
