@@ -23,15 +23,18 @@ import org.apache.log4j.Logger;
 
 // Apache HTTP Components classes
 import org.apache.http.Header;
+import org.apache.http.HeaderElement;
 import org.apache.http.HttpException;
 import org.apache.http.HttpResponse;
 import org.apache.http.StatusLine;
+import org.apache.http.entity.ByteArrayEntity;
 import org.apache.http.entity.ContentType;
 import org.apache.http.impl.DefaultHttpResponseFactory;
 import org.apache.http.impl.io.AbstractSessionInputBuffer;
 import org.apache.http.impl.io.DefaultHttpResponseParser;
 import org.apache.http.io.SessionInputBuffer;
 import org.apache.http.message.BasicHeader;
+import org.apache.http.message.BasicHeaderValueParser;
 import org.apache.http.message.BasicLineParser;
 import org.apache.http.params.BasicHttpParams;
 
@@ -401,6 +404,45 @@ public class ArcRecordCC
   }
 
   /**
+   * <p>Helper function to search a byte array for CR-LF-CR-LF (the end of
+   * HTTP headers in the payload buffer).</p>
+   *
+   * @return The offset of the end of HTTP headers, after the last CRLF.
+   */
+  private int _searchForCRLFCRLF(byte[] data) {
+
+    final byte CR = (byte)'\r';
+    final byte LF = (byte)'\n';
+
+    int i;
+    int s = 0;
+
+    for (i = 0; i < data.length; i++) {
+
+      if      (data[i] == CR) {
+        if      (s == 0) s = 1;
+        else if (s == 1) s = 0;
+        else if (s == 2) s = 3;
+        else if (s == 3) s = 0;
+      }
+      else if (data[i] == LF) {
+        if      (s == 0) s = 0;
+        else if (s == 1) s = 2;
+        else if (s == 2) s = 0;
+        else if (s == 3) s = 4;
+      }
+      else {
+        s = 0;
+      }
+
+      if (s == 4)
+        return i + 1;
+    }
+
+    return -1;
+  }
+
+  /**
    * <p>Returns an HTTP response object parsed from the ARC record payload.<p>
    * <p>Note: The payload is parsed on-demand, but is only parsed once.  The
    * parsed data is saved for subsequent calls.</p>
@@ -414,23 +456,43 @@ public class ArcRecordCC
     if (this._httpResponse != null)
       return this._httpResponse;
 
-    if (this._payload == null)
-      return null;
+    if (this._payload == null) {
+      LOG.error("Unable to parse HTTP response: Payload has not been set"); return null;
+    }
 
-    if (this._url != null && !this._url.startsWith("http://") && !this._url.startsWith("https://"))
-      return null;
+    if (this._url != null && !this._url.startsWith("http://") && !this._url.startsWith("https://")) {
+      LOG.error("Unable to parse HTTP response: URL protocol is not HTTP"); return null;
+    }
 
     this._httpResponse = null;
 
+    // Find where the HTTP headers stop
+    int end = this._searchForCRLFCRLF(this._payload);
+
+    if (end == -1) {
+      LOG.error("Unable to parse HTTP response: End of HTTP headers not found"); return null;
+    }
+
+    // Parse the HTTP status line and headers
     DefaultHttpResponseParser parser =
       new DefaultHttpResponseParser(
-        new ByteArraySessionInputBuffer(this._payload),
+        new ByteArraySessionInputBuffer(this._payload, 0, end),
         new BasicLineParser(),
         new DefaultHttpResponseFactory(),
         new BasicHttpParams()
       );
 
-    this._httpResponse = (HttpResponse) parser.parse();
+    this._httpResponse = parser.parse();
+
+    if (this._httpResponse == null) {
+      LOG.error("Unable to parse HTTP response"); return null;
+    }      
+
+    // Set the reset of the payload as the HTTP entity.
+    ByteArrayEntity entity = new ByteArrayEntity(this._payload, end, this._payload.length - end);
+    entity.setContentType(this._httpResponse.getFirstHeader("Content-Type"));
+    entity.setContentEncoding(this._httpResponse.getFirstHeader("Content-Encoding"));
+    this._httpResponse.setEntity(entity);
 
     return this._httpResponse;
   }
@@ -455,33 +517,26 @@ public class ArcRecordCC
       this.getHttpResponse();
     }
     catch (HttpException ex) {
-      LOG.error("Unable to parse HTML: Exception during HTTP response parsing");
-      return null;
+      LOG.error("Unable to parse HTML: Exception during HTTP response parsing"); return null;
     }
 
     if (this._httpResponse == null) {
-      LOG.error("Unable to parse HTML: Exception during HTTP response parsing");
-      return null;
+      LOG.error("Unable to parse HTML: Exception during HTTP response parsing"); return null;
     }
 
     if (this._httpResponse.getEntity() == null) {
-      LOG.error("Unable to parse HTML: No HTTP response entity found");
-      return null;
+      LOG.error("Unable to parse HTML: No HTTP response entity found"); return null;
     }
 
     if (!this._contentType.toLowerCase().contains("html")) {
-      LOG.warn("Unable to parse HTML: Content is not HTML");
-      return null;
+      LOG.warn("Unable to parse HTML: Content is not HTML"); return null;
     }
 
     String charset = null;
 
     try {
-      // New method as of 4.1.3.  Default value returned is "text/plain" with
-      // charset of ISO-8859-1.
-      ContentType contentType = ContentType.getOrDefault(this._httpResponse.getEntity());
-      charset = contentType.getCharset().name();
-      LOG.info("Payload is HTML with charset: " + charset);
+      // Default value returned is "text/plain" with charset of ISO-8859-1.
+      charset = ContentType.getOrDefault(this._httpResponse.getEntity()).getCharset().name();
     }
     catch (Throwable ex) {
 
