@@ -86,13 +86,13 @@ public class ExampleArcMicroformatCC
 
       try {
 
-        // just curious how many of each content type we've seen
-        reporter.incrCounter(this._counterGroup, "Content Type - "+value.getContentType(), 1);
-
         if (!value.getContentType().contains("html")) {
           reporter.incrCounter(this._counterGroup, "Skipped - Not HTML", 1);
           return;
         }
+
+        // just curious how many of each content type we've seen
+        reporter.incrCounter(this._counterGroup, "Content Type - "+value.getContentType(), 1);
 
         // ensure sample instances have enough memory to parse HTML
         if (value.getContentLength() > (5 * 1024 * 1024)) {
@@ -100,21 +100,15 @@ public class ExampleArcMicroformatCC
           return;
         }
 
-        // Count all HTML pages
-        output.collect(new Text("[total pages processed]"), new LongWritable(1));
- 
         // Count all 'itemtype' attributes referencing 'schema.org'
-        byte[] payload = value.getPayload();
-
-        output.collect(new Text("Example - Payload Length = "+payload.length), new LongWritable(1));
-
-        /*
         Document doc = value.getParsedHTML();
 
         if (doc == null) {
           reporter.incrCounter(this._counterGroup, "Skipped - Unable to Parse HTML", 1);
           return;
         }
+
+        LOG.info("HTML Document Title: "+doc.title());
 
         Elements mf = doc.select("[itemtype~=schema.org]");
 
@@ -125,7 +119,6 @@ public class ExampleArcMicroformatCC
             }
           }
         }
-        */
       }
       catch (Throwable e) {
 
