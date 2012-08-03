@@ -113,14 +113,15 @@ public class ArcRecordReaderCC
       return false;
     }
 
-    key.set(value.getURL());
-
     // if the record is not valid, skip it
     if (isValid == false) {
       LOG.error("Invalid ARC record found at GZIP position "+this._gzip.getBytesRead()+".  Skipping ...");
       this._skipRecord();
       return true;
     }
+
+    if (value.getURL() != null)
+      key.set(value.getURL());
 
     // check to make sure we've reached the end of the GZIP member
     int n = this._gzip.read(_checkBuffer, 0, 64);
