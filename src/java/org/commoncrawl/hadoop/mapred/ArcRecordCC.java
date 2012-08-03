@@ -27,7 +27,7 @@ import org.apache.http.HeaderElement;
 import org.apache.http.HttpException;
 import org.apache.http.HttpResponse;
 import org.apache.http.StatusLine;
-import org.apache.http.entity.ByteArrayEntity;
+import org.apache.http.entity.InputStreamEntity;
 import org.apache.http.entity.ContentType;
 import org.apache.http.impl.DefaultHttpResponseFactory;
 import org.apache.http.impl.io.AbstractSessionInputBuffer;
@@ -70,10 +70,22 @@ public class ArcRecordCC
 
   private HttpResponse _httpResponse;
 
+  private int _httpContentStart;
+
   /**
    * <p>Creates an empty ARC record.</p>
    */
   public ArcRecordCC() { }
+
+  private void _clear() {
+    this._url = null;
+    this._ipAddress = null;
+    this._archiveDate = null;
+    this._contentType = null;
+    this._contentLength = 0;
+    this._payload = null;
+    this._httpResponse = null;
+  }
 
   private String _readLine(InputStream in)
       throws IOException, EOFException {
@@ -116,6 +128,9 @@ public class ArcRecordCC
       LOG.error("ArcRecord cannot be created from NULL/missing input stream.");
       return false;
     }
+
+    // Clear any current values assigned to the object.
+    this._clear();
 
     // Read the ARC header from the stream.
     String arcRecordHeader = this._readLine(in);
@@ -488,8 +503,9 @@ public class ArcRecordCC
       LOG.error("Unable to parse HTTP response"); return null;
     }      
 
-    // Set the reset of the payload as the HTTP entity.
-    ByteArrayEntity entity = new ByteArrayEntity(this._payload, end, this._payload.length - end);
+    // Set the reset of the payload as the HTTP entity.  Use an InputStreamEntity
+    // to avoid a memory copy.
+    InputStreamEntity entity = new InputStreamEntity(new ByteArrayInputStream(this._payload, end, this._payload.length - end), this._payload.length - end);
     entity.setContentType(this._httpResponse.getFirstHeader("Content-Type"));
     entity.setContentEncoding(this._httpResponse.getFirstHeader("Content-Encoding"));
     this._httpResponse.setEntity(entity);
