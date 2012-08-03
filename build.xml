@@ -25,6 +25,7 @@
   <property name="src"   location="src"  />
   <property name="build" location="build"/>
   <property name="dist"  location="dist" />
+  <property name="test"  location="test" />
 
   <target name="init">
     <tstamp/>
@@ -34,11 +35,13 @@
   <target name="compile" depends="init"
           description="compile the source" >
     <javac srcdir="${src}" destdir="${build}" debug="on" debuglevel="lines,vars,source" target="1.6">
+      <compilerarg value="-Xlint"/>
       <classpath>
         <pathelement path="${classpath}"/>
         <fileset dir="${hadoop.path}">
           <include name="**/hadoop-core-*.jar"/>
           <include name="**/log4j-*.jar"/>
+          <include name="**/junit-*.jar"/>
         </fileset>
         <fileset dir="lib">
           <include name="**/*.jar"/>
@@ -51,19 +54,61 @@
           description="generate the distribution" >
     <mkdir dir="${dist}/lib"/>
     <mkdir dir="${build}/lib"/>
-
     <jar jarfile="${dist}/lib/${name}-${version}.jar" basedir="${build}">
       <zipfileset dir="lib" prefix="lib" >
         <include name="**/*.jar" />
       </zipfileset>
     </jar>
+  </target>
 
+  <target name="compile-tests" depends="dist"
+          description="compile test cases" >
+    <mkdir dir="${build}-test"/>
+    <javac srcdir="${test}" destdir="${build}-test" debug="on" debuglevel="lines,vars,source" target="1.6">
+      <compilerarg value="-Xlint"/>
+      <classpath>
+        <pathelement path="${classpath}"/>
+        <pathelement path="/usr/share/java/junit.jar"/>
+        <fileset dir="${hadoop.path}">
+          <include name="**/hadoop-core-*.jar"/>
+          <include name="**/log4j-*.jar"/>
+        </fileset>
+        <fileset dir="lib">
+          <include name="**/*.jar"/>
+        </fileset>
+        <pathelement path="${dist}/lib/${name}-${version}.jar"/>
+      </classpath>
+    </javac>
+  </target>
+
+  <target name="test" depends="compile-tests"
+          description="run Junit test cases" >
+    <junit printsummary="true">
+      <classpath>
+        <pathelement path="${classpath}"/>
+        <pathelement path="/usr/share/java/junit.jar"/>
+        <fileset dir="${hadoop.path}">
+          <include name="**/hadoop-core-*.jar"/>
+          <include name="**/log4j-*.jar"/>
+        </fileset>
+        <fileset dir="lib">
+          <include name="**/*.jar"/>
+        </fileset>
+        <pathelement path="${dist}/lib/${name}-${version}.jar"/>
+        <pathelement path="${build}-test"/>
+      </classpath>
+      <batchtest>
+        <fileset dir="${build}-test"/>
+        <formatter type="plain" usefile="false"/>
+      </batchtest>
+    </junit>
   </target>
 
   <target name="clean"
           description="clean up" >
     <!-- Delete the ${build} and ${dist} directory trees -->
     <delete dir="${build}"/>
+    <delete dir="${build}-test"/>
     <delete dir="${dist}"/>
   </target>
 </project>
