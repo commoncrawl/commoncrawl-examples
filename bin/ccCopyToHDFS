@@ -2,7 +2,9 @@
 
 usage() {
   echo ""
-  echo "$(basename $0) [ TargetPath ]"
+  echo "$(basename $0) ( Save To Path [ # of Files to Download ] )"
+  echo ""
+  echo "i.e. $(basename $0) hdfs://localhost/common-crawl 25"
   echo ""
   exit 1
 }
@@ -30,10 +32,13 @@ AWS_SECRET_KEY=$(tail -n 1 ~/.awssecret)
 
 CC_PATH="s3n://aws-publicdatasets/common-crawl/parse-output"
 
+if [ $# -le 0 ]; then
+  usage
+  exit 0
+fi
+
 if [ $# -ge 1 ]; then
   OUTPUT_PATH="$1"
-else
-  OUTPUT_PATH="hdfs://localhost/common-crawl"
 fi
 
 if [ $# -ge 2 ]; then
