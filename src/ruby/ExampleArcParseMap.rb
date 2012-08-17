@@ -2,13 +2,18 @@
 
 require 'rubygems'
 require 'open3'
+require 'uri'
 
-# Inline this so we don't have to copy a file while bootstrapping
+# Inline these classes so we don't have to copy a file while bootstrapping
+class ArcRecord
+  attr_accessor :num, :url, :ip_address, :archive_date, :content_type, :content_length, :content
+end
+
 class ArcFile
 
   include Enumerable
 
-  def initialize( input_stream )
+  def initialize(input_stream)
     @handle=input_stream
   end
 
@@ -17,24 +22,34 @@ class ArcFile
     begin
       # See http://www.archive.org/web/researcher/ArcFileFormat.php
       # for information about the ARC format once it is decompressed
-      main_header=@handle.readline.strip
-      main_header_body=@handle.read(Integer(main_header.split.last))
+      file_header = @handle.readline.strip
+      @handle.read(Integer(file_header.split.last))
+      i=1
 
       loop do
         begin
-          record_header=@handle.readline.strip
-          size=Integer(record_header.split.last)
-          record_body=@handle.read(size)
-          unless (byte=@handle.read(1))=="\n"
-            raise ArgumentError, "#{self.class}: Corrupt ARCfile? Expected \\n as record terminator, got '#{byte}'"
-          end
-          yield [record_header, record_body]
+          fields = @handle.readline.strip.split(" ")
+          raise "Invalid ARC record header found"       if fields.length != 5
+          warn("Invalid protocol in ARC record header") if not fields[0].to_s.start_with?("http://", "https://")
+
+          record = ArcRecord.new
+          record.num            = i
+          record.url            = fields[0].to_s
+          record.ip_address     = fields[1].to_s
+          record.archive_date   = fields[2].to_s
+          record.content_type   = fields[3].to_s
+          record.content_length = Integer(fields[4])
+          record.content = @handle.read(record.content_length)
+          i = i+1
+
+          yield record
+
         rescue EOFError
           break nil
         end
       end
-    rescue
-      raise "#{self.class}: Error processing - #{$!}"
+    #rescue
+    #  raise "#{self.class}: Record ##{i} - Error - #{$!}"
     end
   end
 
@@ -67,22 +82,16 @@ Open3.popen3('gunzip -c') {|sin,sout,serr,thr|
   end
 
   # Now we have a lazy ArcFile that we can treat as an Enumerable.
-  arcfile.each {|header, body|
-
-    if header
-      url = header.split[0]
-      mimetype = header.split[3]
-
-      next if !mimetype || mimetype.chomp() == ""
-
-      next if !url || url.chomp() == ""
-
-      fileext = File.extname(url.split(/[\?&%;]/).first())
-
-      next if !fileext || fileext.chomp() == ""
-      
-      STDOUT.puts(mimetype.downcase() + "\t" + fileext.downcase())
-
+  arcfile.each {|record|
+    if record
+      begin
+        # work around Ruby URI library's lack of support for URLs with underscore
+        uri = URI.parse(record.url.delete("_"))
+        STDOUT.puts(uri.host.downcase())
+      rescue URI::InvalidURIError
+        warn("ARC file contains invalid URL: "+record.url)
+        next
+      end
     end
   }
 }
