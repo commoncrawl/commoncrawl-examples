@@ -12,8 +12,6 @@
     </filterchain>
   </loadfile>
 
-  <echo message="${version}" />
-
   <!-- include any user specific or environment specifc build properties -->
   <property file="${user.home}/build.properties"/>
   <property file="${basedir}/build.properties"/>
@@ -40,6 +38,9 @@
 
   <target name="compile" depends="init"
           description="compile the source" >
+    <echo message=""/>
+    <echo message="Building '${name}': Version ${version}"/>
+    <echo message=""/>
     <javac srcdir="${src}" destdir="${build}" debug="on" debuglevel="lines,vars,source" target="1.6">
       <compilerarg value="-Xlint"/>
       <classpath>
