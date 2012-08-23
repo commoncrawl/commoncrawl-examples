@@ -1,12 +1,14 @@
 #!/bin/bash -aeu
 
-HDFS_LOCAL_HOSTNAME="localhost"
-MAIN_JAR="commoncrawl-examples-1.0.0.jar"
-EXAMPLES_PATH="src/java/org/commoncrawl/examples"
-EXAMPLES_PKG="org.commoncrawl.examples"
-
 BASE_PATH=`dirname $0`"/.."
 BASE_PATH=`cd ${BASE_PATH}; pwd`
+
+VERSION="$(cat ${BASE_PATH}/VERSION)"
+
+HDFS_LOCAL_HOSTNAME="localhost"
+MAIN_JAR="commoncrawl-examples-${VERSION}.jar"
+EXAMPLES_PATH="src/java/org/commoncrawl/examples"
+EXAMPLES_PKG="org.commoncrawl.examples"
 
 LOCAL_JAR_PATH="${BASE_PATH}/dist/lib"
 

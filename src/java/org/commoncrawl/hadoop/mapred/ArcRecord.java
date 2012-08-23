@@ -3,31 +3,44 @@ package org.commoncrawl.hadoop.mapred;
 import java.io.ByteArrayInputStream;
 import java.io.DataInput;
 import java.io.DataOutput;
+import java.io.EOFException;
 import java.io.InputStream;
 import java.io.IOException;
-import java.io.PushbackInputStream;
-import java.lang.Character;
 import java.lang.IllegalArgumentException;
 import java.lang.Integer;
 import java.lang.Math;
 import java.lang.NumberFormatException;
-import java.lang.StringBuffer;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
-import java.util.ArrayList;
 import java.util.Date;
 
 // Hadoop classes
-import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.Writable;
-
-// Apache HTTP Components classes
-import org.apache.http.Header;
-import org.apache.http.message.BasicHeader;
 
 // Apache log4j classes
 import org.apache.log4j.Logger;
+
+// Apache HTTP Components classes
+import org.apache.http.Header;
+import org.apache.http.HeaderElement;
+import org.apache.http.HttpException;
+import org.apache.http.HttpResponse;
+import org.apache.http.StatusLine;
+import org.apache.http.entity.InputStreamEntity;
+import org.apache.http.entity.ContentType;
+import org.apache.http.impl.DefaultHttpResponseFactory;
+import org.apache.http.impl.io.AbstractSessionInputBuffer;
+import org.apache.http.impl.io.DefaultHttpResponseParser;
+import org.apache.http.io.SessionInputBuffer;
+import org.apache.http.message.BasicHeader;
+import org.apache.http.message.BasicHeaderValueParser;
+import org.apache.http.message.BasicLineParser;
+import org.apache.http.params.BasicHttpParams;
+
+// Jsoup classes
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
 
 /**
  * An entry in an ARC (Internet Archive) data file.
@@ -39,13 +52,6 @@ public class ArcRecord
 
   private static final Logger LOG = Logger.getLogger(ArcRecord.class);
 
-  // boolean indicating whether HTTP message should be parsed.
-  private boolean _parseHttpMessage;
-
-  // header & content
-  private String        _arcRecordHeader;
-  private BytesWritable _content;
-
   // ARC v1 metadata
   private String _url;
   private String _ipAddress;
@@ -54,52 +60,94 @@ public class ArcRecord
   private int    _contentLength;
 
   // ARC v2 metadata
-//private int    resultCode;
-//private String checksum;
-//private String location;
-//private long   offset;
-//private String filename;
+//private int    _resultCode;
+//private String _checksum;
+//private String _location;
+//private long   _offset;
+//private String _filename;
 
-  // HTTP Status Code
-  private int _httpStatusCode;
+  private byte[] _payload;
 
-  // HTTP headers
-  private ArrayList<Header> _httpHeaders;
+  private HttpResponse _httpResponse;
+
+  private int _httpContentStart;
 
   /**
    * <p>Creates an empty ARC record.</p>
    */
-  public ArcRecord() {
+  public ArcRecord() { }
 
-    this._parseHttpMessage = false;
+  private void _clear() {
+    this._url = null;
+    this._ipAddress = null;
+    this._archiveDate = null;
+    this._contentType = null;
+    this._contentLength = 0;
+    this._payload = null;
+    this._httpResponse = null;
+  }
 
-    this._arcRecordHeader  = "";
-    this._content          = new BytesWritable();
+  private String _readLine(InputStream in)
+      throws IOException, EOFException {
 
-    this._url              = "";
-    this._ipAddress        = "";
-    this._archiveDate      = new Date(2000, 1, 1);
-    this._contentType      = "";
+    StringBuffer line = new StringBuffer(128);
 
-    this._contentLength    = this._content.getLength();
+    // read a line of content
+    int b = in.read();
+    int n = 1;
 
-    this._httpStatusCode   = 0;
-    this._httpHeaders      = new ArrayList<Header>(10);
+    // if -1 is returned, we are at EOF
+    if (b == -1)
+      throw new EOFException();
+
+    // read until an NL
+    do {
+
+      if (((char) b) == '\n')
+        break;
+
+      line.append((char) b);
+
+      b = in.read();
+      n++;
+    }
+    while (b != -1);
+
+    return line.toString();
   }
 
   /**
-   * <p>Creates a new ARC record with ARC record header data parsed and content
-   * parsed and/or assigned.</p>.<p>Internally, simply calls <code>setArcRecordHeader()</code>
-   * and <code>setContent()</code>.
+   * <p>Parses the ARC record header and payload (content) from a stream.</p>
    *
-   * @param arcRecordHeader The first line of an ARC file entry - the header
-   * line for an ARC file item.
-   * @param content The body of the ARC file entry (including HTTP headers, if applicable).
+   * @return TRUE if the ARC record was parsed and loaded successfully, FALSE if not.
    */
-  public ArcRecord(String arcRecordHeader, BytesWritable content)
-      throws IllegalArgumentException, ParseException, IOException {
-    this.setArcRecordHeader(arcRecordHeader);
-    this.setContent(content);
+  public boolean readFrom(InputStream in)
+      throws IOException, EOFException {
+
+    if (in == null) {
+      LOG.error("ArcRecord cannot be created from NULL/missing input stream.");
+      return false;
+    }
+
+    // Clear any current values assigned to the object.
+    this._clear();
+
+    // Read the ARC header from the stream.
+    String arcRecordHeader = this._readLine(in);
+
+    try {
+      this.setArcRecordHeader(arcRecordHeader);
+      this.setPayload(in);
+    }
+    catch (IOException ex) {
+      throw ex;
+    }
+    catch (Exception ex) {
+      LOG.error("Exception thrown while parsing ARC record", ex);
+      return false;
+    }
+     
+    return true;
   }
 
   /**
@@ -128,74 +176,67 @@ public class ArcRecord
 
     String[] metadata = arcRecordHeader.split(" ");
 
-    if (metadata.length != 5)
+    if (metadata.length != 5) {
+      LOG.info(" [ "+arcRecordHeader+" ] ");
       throw new IllegalArgumentException("ARC v1 record header must be 5 fields.");
-
-    if (arcRecordHeader.startsWith("http://"))
-      this._parseHttpMessage = true;
+    }
 
     SimpleDateFormat format = new SimpleDateFormat("yyyyMMddHHmmss");
 
-    this._url            = metadata[0];
-    this._ipAddress      = metadata[1];
-    this._archiveDate    = format.parse(metadata[2]);
-    this._contentType    = metadata[3];
+    this._url            =  metadata[0];
+    this._ipAddress      =  metadata[1];
+    this._archiveDate    =  format.parse(metadata[2]);
+    this._contentType    =  metadata[3];
     this._contentLength  = (new Integer(metadata[4])).intValue();
   }
 
   /**
-   * <p>Sets the ARC record body content.</p>
-   * <p>If HTTP message parsing is turned on, this function parses the HTTP envelope.</p>
+   * <p>Reads and sets the ARC record payload from an input stream.</p>
    *
-   * @param content The body of the ARC file entry (including HTTP status & 
-   *                headers, if applicable).  This argument cannot be NULL.
+   * @param in An input stream positioned at the start of the ARC record payload.
    */
-  public void setContent(BytesWritable content)
+  public void setPayload(InputStream in)
       throws IllegalArgumentException, ParseException, IOException {
 
-    if (content == null)
-      throw new IllegalArgumentException("ArcRecord cannot be created with NULL/missing content.");
+    if (in == null)
+      throw new IllegalArgumentException("ArcRecord cannot be created from NULL/missing input stream.");
 
-    if (this._parseHttpMessage == false) {
-      this._content = content;
-    }
-    else {
+    int bufferSize = this._contentLength;
 
-      // HTTP header parsing code shamelessly stolen from nutch
-			ByteArrayInputStream is = new ByteArrayInputStream(content.getBytes(), 0, content.getLength());
+    this._payload = new byte[bufferSize];
 
-      StringBuffer buffer = new StringBuffer();
-      PushbackInputStream pis = new PushbackInputStream(is);
+    int n = in.read(this._payload, 0, this._payload.length);
 
-      // read the status code
-      this._httpStatusCode = this._parseStatusLine(pis, buffer);
-
-      // read the headers
-      this._parseHeaders(pis, buffer);
-
-      // after headers are parsed, read the reset of the body content
-      byte[] bytes = new byte[pis.available()];
-      pis.read(bytes, 0, pis.available());
-
-      this._content = new BytesWritable(bytes);
+    if (n < this._payload.length) {
+      LOG.warn("Expecting "+bufferSize+" bytes in ARC record payload, found "+n+" bytes.  Performing array copy.");
+      this._payload = Arrays.copyOf(this._payload, n);
     }
 
-    if (LOG.isDebugEnabled()) {
-      if (this._content == null)
-        LOG.debug("      - ARC content buffer is NULL");
-      else
-        LOG.debug("      - ARC content buffer capactiy:       " + String.format("%,12d", this._content.getCapacity()) + " bytes");
-    }
+    // After this, we should be at the end of this GZIP member.  Let the
+    // calling function verify the position of the stream.
   }
 
-  /**
-   * <p>Sets whether the HTTP message should be parsed out of the content.</p>
-   *
-   * @param parseHttpMessage Should be set to TRUE if the content contains an HTTP
-   *                         envelope that needs to be parsed.
-   */
-  public void setParseHttpMessage(boolean parseHttpMessage) {
-    this._parseHttpMessage = parseHttpMessage;
+  public void addToPayload(byte[] data) {
+    this.addToPayload(data, data.length);
+  }
+
+  public void addToPayload(byte[] data, int length) {
+
+    LOG.warn("Content Length must have been incorrect - someone needed to add more data to the payload.");
+
+    if (this._payload == null) {
+      this._payload = Arrays.copyOf(data, length);
+    }
+    else {
+      int i = this._payload.length;
+      int n = this._payload.length + length;
+
+      // resize the payload buffer
+      this._payload = Arrays.copyOf(this._payload, n);
+
+      // copy in the additional data
+      System.arraycopy(data, 0, this._payload, i, length);
+    }
   }
 
   /**
@@ -218,17 +259,9 @@ public class ArcRecord
     out.writeLong(this._archiveDate.getTime());
     out.writeInt(this._contentLength);
 
-    // write out HTTP info
-    out.writeInt(this._httpStatusCode);
-
-    out.writeInt(this._httpHeaders.size());
-    for (Header header : this._httpHeaders) {
-      out.writeUTF(header.getName());
-      out.writeUTF(header.getValue());
-    }
- 
-    // write out content
-    this._content.write(out);
+    // write out the payload
+    out.writeInt(this._payload.length);
+    out.write(this._payload, 0, this._payload.length);
   }
 
   /**
@@ -244,32 +277,32 @@ public class ArcRecord
     this._archiveDate   = new Date(in.readLong());
     this._contentLength = in.readInt();
 
-    // read in HTTP info
-    this._httpStatusCode = in.readInt();
+    // read in the payload
+    int payloadLength = in.readInt();
 
-    int size = in.readInt();
-    this._httpHeaders = new ArrayList<Header>(size);
-    for (int i = 0; i < size; i++) {
-      String name  = in.readUTF();
-      String value = in.readUTF();
-      this._httpHeaders.add(new BasicHeader(name, value));
+    // resize the payload buffer if necessary
+    if (this._payload == null || this._payload.length != payloadLength)
+      this._payload = new byte[payloadLength];
+
+    try {
+      in.readFully(this._payload, 0, payloadLength);
+    }
+    catch (EOFException ex) {
+      throw new IOException("End of input reached before payload was fully deserialized.");
     }
 
-    // read in content
-    this._content.readFields(in);
+    // assume that if a new payload was loaded, HTTP response will need to be reparsed.
+    this._httpResponse = null;
   }
 
   /**
-   * <p>Returns the ARC record content.</p>
-   * <p>If HTTP headers were parsed, content is returned <i>without</i> HTTP headers,
-   * and HTTP headers can be retrieved with <code>getHttpHeaders()</code>.
-   * <p>Note: Data should *never* be written directly to this array.  Always use
-   * <code>setContent()</code> to assign content to the ARC record.</p>
+   * <p>Returns the full ARC record payload.  This is usually a complete HTTP
+   * response.</p>
    *
-   * @return The raw ARC record content data.
+   * @return The raw ARC record content.
    */
-  public byte[] getContent() {
-    return this._content.getBytes();
+  public byte[] getPayload() {
+    return this._payload;
   }
 
   /**
@@ -324,144 +357,212 @@ public class ArcRecord
   }
 
   /**
-   * <p>Returns the HTTP status code, if HTTP headers were parsed out of the content.</p>
+   * <p>Returns the HTTP status code.</p>
+   * <p>If the payload could not be parsed as an HTTP response, returns -1.</p>
+   * <p>Warning: if the payload has not yet been parsed as an HTTP response,
+   * calling this function parses the full response.  Parsing is only performed
+   * once - parsed data is retained for subsequent calls.</p>
    *
    * @return The HTTP status code.
    */
-  public int getHttpStatusCode() {
-    return this._httpStatusCode;
+  public int getHttpStatusCode()
+      throws IOException, HttpException {
+
+    HttpResponse httpResponse = this.getHttpResponse();
+
+    if (httpResponse == null)
+      return -1;
+
+    return httpResponse.getStatusLine().getStatusCode();
   }
 
   /**
-   * <p>Returns an array of HTTP headers, if HTTP headers were parsed out of the content.</p>
+   * <p>Returns an array of HTTP headers.</p>
+   * <p>If the payload could not be parsed as an HTTP response, returns <code>null</code>.</p>
+   * <p>Warning: if the payload has not yet been parsed as an HTTP response,
+   * calling this function parses the full response.  Parsing is only performed
+   * once - parsed data is retained for subsequent calls.</p>
    *
    * @return An array of HTTP headers.
    */
-  public Header[] getHttpHeaders() {
-    return this._httpHeaders.toArray(new Header[this._httpHeaders.size()]);
+  public Header[] getHttpHeaders()
+      throws IOException, HttpException {
+
+    HttpResponse httpResponse = this.getHttpResponse();
+
+    if (httpResponse == null)
+      return null;
+
+    return httpResponse.getAllHeaders();
   }
 
- 
-  // shamelessly forklifted from nutch
-  private int _parseStatusLine(PushbackInputStream in, StringBuffer line)
-      throws IOException, ParseException {
-    _readLine(in, line, false);
+  /**
+   *
+   */ 
+  public static class ByteArraySessionInputBuffer
+      extends AbstractSessionInputBuffer {
 
-    int codeStart = line.indexOf(" ");
-    int codeEnd = line.indexOf(" ", codeStart+1);
-
-    // handle lines with no plaintext result code, ie:
-    // "HTTP/1.1 200" vs "HTTP/1.1 200 OK"
-    if (codeEnd == -1)
-      codeEnd= line.length();
-
-    int code;
-    try {
-      code= Integer.parseInt(line.substring(codeStart+1, codeEnd));
-    } catch (NumberFormatException e) {
-      throw new ParseException("bad status line '" + line + "': " + e.getMessage(), 0);
+    public ByteArraySessionInputBuffer(byte[] buf) {
+      BasicHttpParams params = new BasicHttpParams();
+      this.init(new ByteArrayInputStream(buf), 4096, params);
     }
 
-    return code;
+    public ByteArraySessionInputBuffer(byte[] buf, int offset, int length) {
+      BasicHttpParams params = new BasicHttpParams();
+      this.init(new ByteArrayInputStream(buf, offset, length), 4096, params);
+    }
+
+    public boolean isDataAvailable(int timeout) {
+      return true;
+    }
   }
 
-  // shamelessly forklifted from nutch
-  private void _parseHeaders(PushbackInputStream in, StringBuffer line)
-    throws IOException, ParseException {
+  /**
+   * <p>Helper function to search a byte array for CR-LF-CR-LF (the end of
+   * HTTP headers in the payload buffer).</p>
+   *
+   * @return The offset of the end of HTTP headers, after the last CRLF.
+   */
+  private int _searchForCRLFCRLF(byte[] data) {
 
-    while (_readLine(in, line, true) != 0) {
+    final byte CR = (byte)'\r';
+    final byte LF = (byte)'\n';
 
-      // handle HTTP responses with missing blank line after headers
-      int pos;
-      if ( ((pos= line.indexOf("<!DOCTYPE")) != -1) 
-           || ((pos= line.indexOf("<?xml")) != -1) 
-           || ((pos= line.indexOf("<HTML")) != -1) 
-           || ((pos= line.indexOf("<html")) != -1) ) {
+    int i;
+    int s = 0;
 
-        in.unread(line.substring(pos).getBytes("US-ASCII"));
-        line.setLength(pos);
+    for (i = 0; i < data.length; i++) {
 
-        _processHeaderLine(line);
-
-        return;
+      if      (data[i] == CR) {
+        if      (s == 0) s = 1;
+        else if (s == 1) s = 0;
+        else if (s == 2) s = 3;
+        else if (s == 3) s = 0;
+      }
+      else if (data[i] == LF) {
+        if      (s == 0) s = 0;
+        else if (s == 1) s = 2;
+        else if (s == 2) s = 0;
+        else if (s == 3) s = 4;
+      }
+      else {
+        s = 0;
       }
 
-      _processHeaderLine(line);
+      if (s == 4)
+        return i + 1;
     }
+
+    return -1;
   }
 
-  // shamelessly forklifted from nutch
-  private void _processHeaderLine(StringBuffer line)
-    throws IOException, ParseException {
+  /**
+   * <p>Returns an HTTP response object parsed from the ARC record payload.<p>
+   * <p>Note: The payload is parsed on-demand, but is only parsed once.  The
+   * parsed data is saved for subsequent calls.</p>
+   *
+   * @return The ARC record payload as an HTTP response object.  See the Apache
+   * HttpComponents project.
+   */
+  public HttpResponse getHttpResponse()
+      throws IOException, HttpException {
 
-    int colonIndex = line.indexOf(":");       // key is up to colon
+    if (this._httpResponse != null)
+      return this._httpResponse;
 
-    if (colonIndex == -1) {
-      int i;
-      for (i= 0; i < line.length(); i++)
-        if (!Character.isWhitespace(line.charAt(i)))
-          break;
-      if (i == line.length())
-        return;
-      throw new ParseException("No colon in HTTP header: " + line, 0);
-    }
-    String key = line.substring(0, colonIndex);
-
-    int valueStart = colonIndex+1;            // skip whitespace
-    while (valueStart < line.length()) {
-      int c = line.charAt(valueStart);
-      if (c != ' ' && c != '\t')
-        break;
-      valueStart++;
+    if (this._payload == null) {
+      LOG.error("Unable to parse HTTP response: Payload has not been set"); return null;
     }
 
-    String value = line.substring(valueStart);
+    if (this._url != null && !this._url.startsWith("http://") && !this._url.startsWith("https://")) {
+      LOG.error("Unable to parse HTTP response: URL protocol is not HTTP"); return null;
+    }
 
-    this._httpHeaders.add(new BasicHeader(key, value));
+    this._httpResponse = null;
+
+    // Find where the HTTP headers stop
+    int end = this._searchForCRLFCRLF(this._payload);
+
+    if (end == -1) {
+      LOG.error("Unable to parse HTTP response: End of HTTP headers not found"); return null;
+    }
+
+    // Parse the HTTP status line and headers
+    DefaultHttpResponseParser parser =
+      new DefaultHttpResponseParser(
+        new ByteArraySessionInputBuffer(this._payload, 0, end),
+        new BasicLineParser(),
+        new DefaultHttpResponseFactory(),
+        new BasicHttpParams()
+      );
+
+    this._httpResponse = parser.parse();
+
+    if (this._httpResponse == null) {
+      LOG.error("Unable to parse HTTP response"); return null;
+    }      
+
+    // Set the reset of the payload as the HTTP entity.  Use an InputStreamEntity
+    // to avoid a memory copy.
+    InputStreamEntity entity = new InputStreamEntity(new ByteArrayInputStream(this._payload, end, this._payload.length - end), this._payload.length - end);
+    entity.setContentType(this._httpResponse.getFirstHeader("Content-Type"));
+    entity.setContentEncoding(this._httpResponse.getFirstHeader("Content-Encoding"));
+    this._httpResponse.setEntity(entity);
+
+    return this._httpResponse;
   }
 
-  // shamelessly forklifted from nutch
-  private static int _readLine(PushbackInputStream in, StringBuffer line, boolean allowContinuedLine)
-      throws IOException, ParseException {
-    line.setLength(0);
-
-    if (_peek(in) == '<')
-      return line.length();
-
-    for (int c = in.read(); c != -1; c = in.read()) {
-      switch (c) {
-        case '\r':
-          if (_peek(in) == '\n') {
-            in.read();
-          }
-        case '\n': 
-          if (line.length() > 0) {
-            // at EOL -- check for continued line if the current
-            // (possibly continued) line wasn't blank
-            if (allowContinuedLine) 
-              switch (_peek(in)) {
-                case ' ' : case '\t':                   // line is continued
-                  in.read();
-                  continue;
-              }
-          }
-          return line.length();      // else complete
-        default :
-          line.append((char)c);
-      }
-    }
-    // we should never get here
-    line.setLength(0);
-    return 0;
-  }
-
-  // shamelessly forklifted from nutch
-  private static int _peek(PushbackInputStream in)
+  /**
+   * <p>Returns a Jsoup HTML document, parsed using the Charset in the
+   * "Content-Type" header.  If the document charset cannot be found, parse is
+   * attempted using </p>
+   *
+   * @return A Jsoup parsed HTML document from the HTTP response content.
+   */
+  public Document getParsedHTML()
       throws IOException {
-    int value = in.read();
-    in.unread(value);
-    return value;
-  }
 
+    if (this._url == null) {
+      LOG.error("Unable to parse HTML: URL from ARC header has not been set");
+      return null;
+    }
+
+    // if response has not been parsed yet, this parses it
+    try {
+      this.getHttpResponse();
+    }
+    catch (HttpException ex) {
+      LOG.error("Unable to parse HTML: Exception during HTTP response parsing"); return null;
+    }
+
+    if (this._httpResponse == null) {
+      LOG.error("Unable to parse HTML: Exception during HTTP response parsing"); return null;
+    }
+
+    if (this._httpResponse.getEntity() == null) {
+      LOG.error("Unable to parse HTML: No HTTP response entity found"); return null;
+    }
+
+    if (!this._contentType.toLowerCase().contains("html")) {
+      LOG.warn("Unable to parse HTML: Content is not HTML"); return null;
+    }
+
+    String charset = null;
+
+    try {
+      // Default value returned is "text/plain" with charset of ISO-8859-1.
+      charset = ContentType.getOrDefault(this._httpResponse.getEntity()).getCharset().name();
+    }
+    catch (Throwable ex) {
+
+    }
+
+    // if anything goes wrong, try ISO-8859-1
+    if (charset == null)
+      charset = "ISO-8859-1";
+
+    // parse the content using the derived charset and the URL from the ARC header
+    return Jsoup.parse(this._httpResponse.getEntity().getContent(), charset, this._url);
+  }
 }
 

@@ -1,190 +1,166 @@
 package org.commoncrawl.hadoop.mapred;
 
+import java.io.BufferedReader;
+import java.io.EOFException;
 import java.io.IOException;
-import java.lang.IllegalArgumentException;
-import java.lang.Runtime;
-import java.text.ParseException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+
+import java.lang.Math;
+import java.lang.StringBuffer;
+import java.util.Arrays;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapred.FileSplit;
 import org.apache.hadoop.mapred.RecordReader;
 
 import org.apache.log4j.Logger;
 
-import org.commoncrawl.hadoop.mapred.ArcRecord;
+import org.commoncrawl.compressors.gzip.GzipCompressorInputStream;
 
 /**
- * <p>The <code>ArcRecordReader</code> class provides a record reader which 
- * reads records from arc files.</p>
+ * Reads ARC records.
  * 
- * <p>Arc files are essentially tars of gzips.  Each record in an arc file is
- * a compressed gzip.  Multiple records are concatenated together to form a
- * complete arc.  For more information on the arc file format see</p>
- * <p><a href="http://www.archive.org/web/researcher/ArcFileFormat.php">
- * http://www.archive.org/web/researcher/ArcFileFormat.php
- * </a></p>
- * 
- * <p>Arc files are used by the internet archive and grub projects.</p>
- * 
- * @see <a href="http://www.archive.org/">http://www.archive.org/</a>
+ * Set "io.file.buffer.size" to define the amount of data that should be
+ * buffered from S3.
  */
 public class ArcRecordReader
     implements RecordReader<Text, ArcRecord> {
 
   private static final Logger LOG = Logger.getLogger(ArcRecordReader.class);
 
-  private org.commoncrawl.nutch.tools.arc.ArcRecordReader _impl;
+  private FSDataInputStream         _fsin;
+  private GzipCompressorInputStream _gzip;
+  private long                      _fileLength;
 
   /**
-   * {@inheritDoc}
+   *
    */
-  public ArcRecordReader(Configuration conf, FileSplit split)
-    throws IOException {
-    this._impl = new org.commoncrawl.nutch.tools.arc.ArcRecordReader(conf, split);
+  public ArcRecordReader(Configuration job, FileSplit split)
+      throws IOException { 
+
+    if (split.getStart() != 0) {
+      IOException ex = new IOException("Invalid ARC file split start " + split.getStart() + ": ARC files are not splittable");
+      LOG.error(ex.getMessage());
+      throw ex; 
+    }
+
+    // open the file and seek to the start of the split
+    final Path file = split.getPath();
+
+    FileSystem fs = file.getFileSystem(job);
+
+    this._fsin = fs.open(file);
+
+    // create a GZIP stream that *does not* automatically read through members
+    this._gzip = new GzipCompressorInputStream(this._fsin, false);
+
+    this._fileLength = fs.getFileStatus(file).getLen();
+
+    // First record should be an ARC file header record.  Skip it.
+    this._skipRecord();
   }
 
   /**
-   * {@inheritDoc}
+   * Skips the current record, and advances to the next GZIP member.
    */
-  public void close()
-    throws IOException {
-    this._impl.close();
-  }
+  private void _skipRecord()
+      throws IOException {
 
+    long n = 0;
+
+    do {
+      n = this._gzip.skip(999999999);
+    }
+    while (n > 0);
+
+    this._gzip.nextMember();
+  }
+  
   /**
-   * {@inheritDoc}
+   * @inheritDoc
    */
   public Text createKey() {
     return new Text();
   }
-
+  
   /**
-   * {@inheritDoc}
+   * @inheritDoc
    */
   public ArcRecord createValue() {
     return new ArcRecord();
   }
 
-  /**
-   * {@inheritDoc}
-   */
-  public long getPos()
-    throws IOException {
-    return this._impl.getPos();
-  }
+  private static byte[] _checkBuffer = new byte[64];
 
   /**
-   * {@inheritDoc}
+   * 
    */
-  public float getProgress()
-    throws IOException {
-    return this._impl.getProgress();
-  }
-
-  private final int _maxRecursion = 100;
-  private       int _recursion    = 0;
-
-  private boolean _callNext(Text key, ArcRecord value)
-      throws IOException {
-    boolean rv;
-    this._recursion++;
-    rv = this.next(key, value);
-    this._recursion--;
-    return rv;
-  }
-
-  /**
-   * <p>Returns true if the next record in the split is read into the key and 
-   * value pair.  The key will be the arc record header and the values will be
-   * the raw content bytes of the arc record.</p>
-   * 
-   * @param key The record key
-   * @param value The record value
-   * 
-   * @return True if the next record is read.
-   * 
-   * @throws IOException If an error occurs while reading the record value.
-   */
-  public boolean next(Text key, ArcRecord value)
+  public synchronized boolean next(Text key, ArcRecord value)
       throws IOException {
 
-    BytesWritable bytes = new BytesWritable();
-
-    boolean rv;
+    boolean isValid = true;
     
-    // get the next record from the underlying Nutch implementation
-    rv = this._impl.next(key, bytes);
-
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("Entering RecordReader.next() - recursion = " + this._recursion);
-      LOG.debug("- ARC Record Header (Nutch): [" + key.toString() + "]");
-      LOG.debug("- ARC Record Content Size (Nutch):  " + String.format("%,12d", bytes.getLength()));
-      LOG.debug("- Free / Curr JVM / Max JVM Memory: " + String.format("%,12d", Runtime.getRuntime().freeMemory()  / 1024 / 1024) + "MB "
-                                                       + String.format("%,12d", Runtime.getRuntime().totalMemory() / 1024 / 1024) + "MB "
-                                                       + String.format("%,12d", Runtime.getRuntime().maxMemory()   / 1024 / 1024) + "MB");
-    }
-
-		// if 'false' is returned, EOF has been reached
-    if (rv == false) {
-      if (LOG.isDebugEnabled())
-        LOG.debug("Nutch ARC reader returned FALSE at " + this.getPos());
-      return false;
-    }
-
-    // if we've found too many invalid records in a row, bail ...
-    if (this._recursion > this._maxRecursion) {
-      LOG.error("Found too many ("+this._maxRecursion+") invalid records in a row.  Aborting ...");
-      return false;
-    }
-
-    // get the ARC record header returned from Nutch
-    String arcRecordHeader = key.toString();
-
-    // perform a basic sanity check on the record header
-    if (arcRecordHeader.length() < 12) {
-      LOG.error("Record at offset " + this.getPos() + " does not have appropriate ARC header: [" + arcRecordHeader + "]");
-      return this._callNext(key, value);
-    }
-
-    // skip the ARC file header record
-    if (arcRecordHeader.startsWith("filedesc://")) {
-      LOG.info("File header detected: skipping record at " + this.getPos() + " [ " + arcRecordHeader + "]");
-      return this._callNext(key, value);
-    }
-
+    // try reading an ARC record from the stream
     try {
+      isValid = value.readFrom(this._gzip);
+    }
+    catch (EOFException ex) {
+      return false;
+    }
 
-      // split ARC metadata into fields
-      value.setArcRecordHeader(arcRecordHeader);
+    // if the record is not valid, skip it
+    if (isValid == false) {
+      LOG.error("Invalid ARC record found at GZIP position "+this._gzip.getBytesRead()+".  Skipping ...");
+      this._skipRecord();
+      return true;
+    }
 
-      if (LOG.isDebugEnabled())
-        LOG.debug("- ARC Record Size (ARC Header):     " + String.format("%,12d", value.getContentLength()));
-
-      // set the key to the URL
+    if (value.getURL() != null)
       key.set(value.getURL());
 
-      // see if we need to parse HTTP headers
-      if (arcRecordHeader.startsWith("http://")) {
-        value.setParseHttpMessage(true);
-      }
+    // check to make sure we've reached the end of the GZIP member
+    int n = this._gzip.read(_checkBuffer, 0, 64);
 
-      // set the content, and parse the headers (if necessary)
-      value.setContent(bytes);
+    if (n != -1) {
+      LOG.error(n+"  bytes of unexpected content found at end of ARC record.  Skipping ...");
+      this._skipRecord();
     }
-    catch (IllegalArgumentException ex) {
-      LOG.error("Unable to process record at offset " + this.getPos() + ": ", ex);
-      return this._callNext(key, value);
+    else {
+      this._gzip.nextMember();
     }
-    catch (ParseException ex) {
-      LOG.error("Unable to process record at offset " + this.getPos() + ": ", ex);
-      return this._callNext(key, value);
-    }
-
+   
     return true;
   }
+
+  /**
+   * @inheritDoc
+   */
+  public float getProgress()
+      throws IOException {
+    return Math.min(1.0f, this._gzip.getBytesRead() / (float) this._fileLength);
+  }
+  
+  /**
+   * @inheritDoc
+   */
+  public synchronized long getPos()
+      throws IOException {
+    return this._gzip.getBytesRead();
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public synchronized void close()
+      throws IOException {
+
+    if (this._gzip != null)
+      this._gzip.close(); 
+  }
+
 }

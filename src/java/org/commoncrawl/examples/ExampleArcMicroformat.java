@@ -12,6 +12,7 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
 import java.net.URI;
+import java.util.Arrays;
 
 // log4j classes
 import org.apache.log4j.Logger;
@@ -85,25 +86,27 @@ public class ExampleArcMicroformat
 
       try {
 
-        // just curious how many of each content type we've seen
-        reporter.incrCounter(this._counterGroup, "Content Type - "+value.getContentType(), 1);
-
         if (!value.getContentType().contains("html")) {
           reporter.incrCounter(this._counterGroup, "Skipped - Not HTML", 1);
           return;
         }
 
+        // just curious how many of each content type we've seen
+        reporter.incrCounter(this._counterGroup, "Content Type - "+value.getContentType(), 1);
+
         // ensure sample instances have enough memory to parse HTML
-        if (value.getContent().length > (5 * 1024 * 1024)) {
+        if (value.getContentLength() > (5 * 1024 * 1024)) {
           reporter.incrCounter(this._counterGroup, "Skipped - HTML Too Long", 1);
           return;
         }
 
-        // Count all HTML pages
-        output.collect(new Text("[total pages processed]"), new LongWritable(1));
- 
         // Count all 'itemtype' attributes referencing 'schema.org'
-        Document doc = Jsoup.parse(new ByteArrayInputStream(value.getContent()), "US-ASCII", value.getURL());
+        Document doc = value.getParsedHTML();
+
+        if (doc == null) {
+          reporter.incrCounter(this._counterGroup, "Skipped - Unable to Parse HTML", 1);
+          return;
+        }
 
         Elements mf = doc.select("[itemtype~=schema.org]");
 
@@ -177,7 +180,7 @@ public class ExampleArcMicroformat
       configFile = args[1];
 
     // For this example, only look at a single ARC files.
-    String inputPath   = "s3n://aws-publicdatasets/common-crawl/parse-output/segment/1341690164240/1341817173109_4.arc.gz";
+    String inputPath   = "s3n://aws-publicdatasets/common-crawl/parse-output/segment/1341690163490/1341782443295_1551.arc.gz";
  
     // Switch to this if you'd like to look at all ARC files.  May take many minutes just to read the file listing.
   //String inputPath   = "s3n://aws-publicdatasets/common-crawl/parse-output/segment/*/*.arc.gz";

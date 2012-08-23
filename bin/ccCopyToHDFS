@@ -1,0 +1,84 @@
+#!/bin/bash -aeu
+
+usage() {
+  echo ""
+  echo "$(basename $0) ( Save To Path [ # of Files to Download ] )"
+  echo ""
+  echo "i.e. $(basename $0) hdfs://localhost/common-crawl 25"
+  echo ""
+  exit 1
+}
+
+echo 
+echo "-----------------------------------------------------------------"
+echo "* "
+echo "* Common Crawl Data Downloader"
+echo "* "
+echo "-----------------------------------------------------------------"
+
+if [ ! -r ~/.awssecret ]; then
+  echo ""
+  echo "ERROR: Please create a readable '.awssecret' file in your home directory."
+  echo ""
+  echo "The first line should be your AWS Access ID."
+  echo ""
+  echo "The second line should be your AWS Secret Key."
+  echo ""
+  exit 1
+fi
+
+AWS_ACCESS_ID=$(head -n 1 ~/.awssecret)
+AWS_SECRET_KEY=$(tail -n 1 ~/.awssecret)
+
+CC_PATH="s3n://aws-publicdatasets/common-crawl/parse-output"
+
+if [ $# -le 0 ]; then
+  usage
+  exit 0
+fi
+
+if [ $# -ge 1 ]; then
+  OUTPUT_PATH="$1"
+fi
+
+if [ $# -ge 2 ]; then
+  FILE_LIMIT="$2"
+  FILE_LIMIT_PARAM="-filelimit $2"
+else
+  FILE_LIMIT="-1"
+  FILE_LIMIT_PARAM=""
+fi
+
+echo "INFO: Downloading list of valid segments"
+rm -f /tmp/cc-valid.txt
+
+hadoop fs -get ${CC_PATH}/valid_segments.txt /tmp/cc-valid.txt
+
+if [ ! -s /tmp/cc-valid.txt ]; then
+  echo "ERROR: Unable to download valid segments list"
+  exit 1
+fi
+
+while read SEGMENT_ID; do
+  SOURCE_PATH="${CC_PATH}/segment/${SEGMENT_ID}"
+  TARGET_PATH="${OUTPUT_PATH}/segment/${SEGMENT_ID}"
+  echo "INFO: Running copy command for segment ${SEGMENT_ID}"
+  echo "
+  hadoop distcp \\
+    -Dfs.s3n.awsAccessKeyId=\"**********\" -Dfs.s3n.awsSecretAccessKey=\"**********\" \\
+    -i ${FILE_LIMIT_PARAM} \\
+    ${SOURCE_PATH} \\
+    ${TARGET_PATH}
+  "
+  hadoop distcp \
+    -Dfs.s3n.awsAccessKeyId="${AWS_ACCESS_ID}" -Dfs.s3n.awsSecretAccessKey="${AWS_SECRET_KEY}" \
+    -i ${FILE_LIMIT_PARAM} \
+    ${SOURCE_PATH} \
+    ${TARGET_PATH}
+
+  if [ ${FILE_LIMIT} -gt 0 ]; then
+    break
+  fi
+
+done < /tmp/cc-valid.txt
+

@@ -5,7 +5,7 @@ sum  = 0
 
 ARGF.each do |line|
 
-  # split key and value on tab character
+  # the entire line is the key
   key = line.chomp
 
   # if the current key hasn't been set yet, set it
@@ -17,7 +17,9 @@ ARGF.each do |line|
   # if a new key is found, emit the current key ...
   elsif key != curr && sum > 0
 
-    STDOUT.puts(curr + "\t" + sum.to_s())
+    if sum > 2 
+      STDOUT.puts(curr + "\t" + sum.to_s())
+    end
 
     # ... then set up a new key
     curr = key
