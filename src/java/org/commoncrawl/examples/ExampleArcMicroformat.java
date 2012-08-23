@@ -43,8 +43,8 @@ import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
 
 // Common Crawl classes
-import org.commoncrawl.hadoop.mapred.ArcInputFormatCC;
-import org.commoncrawl.hadoop.mapred.ArcRecordCC;
+import org.commoncrawl.hadoop.mapred.ArcInputFormat;
+import org.commoncrawl.hadoop.mapred.ArcRecord;
 
 // jsoup classes
 import org.jsoup.Jsoup;
@@ -57,11 +57,11 @@ import org.jsoup.select.Elements;
  * 
  * @author Chris Stephens <chris@commoncrawl.org>
  */
-public class ExampleArcMicroformatCC
+public class ExampleArcMicroformat
     extends    Configured
     implements Tool {
 
-  private static final Logger LOG = Logger.getLogger(ExampleArcMicroformatCC.class);
+  private static final Logger LOG = Logger.getLogger(ExampleArcMicroformat.class);
 
   /**
    * Maps incoming web documents to a list of Microformat 'itemtype' tags.
@@ -74,14 +74,14 @@ public class ExampleArcMicroformatCC
    * @author Manu Sporny 
    * @author Steve Salevan
    */
-  public static class ExampleArcMicroformatCCMapper
+  public static class ExampleArcMicroformatMapper
       extends    MapReduceBase
-      implements Mapper<Text, ArcRecordCC, Text, LongWritable> {
+      implements Mapper<Text, ArcRecord, Text, LongWritable> {
  
     // create a counter group for Mapper-specific statistics
     private final String _counterGroup = "Custom Mapper Counters";
 
-    public void map(Text key, ArcRecordCC value, OutputCollector<Text, LongWritable> output, Reporter reporter)
+    public void map(Text key, ArcRecord value, OutputCollector<Text, LongWritable> output, Reporter reporter)
         throws IOException {
 
       try {
@@ -107,8 +107,6 @@ public class ExampleArcMicroformatCC
           reporter.incrCounter(this._counterGroup, "Skipped - Unable to Parse HTML", 1);
           return;
         }
-
-        LOG.info("HTML Document Title: "+doc.title());
 
         Elements mf = doc.select("[itemtype~=schema.org]");
 
@@ -182,7 +180,7 @@ public class ExampleArcMicroformatCC
       configFile = args[1];
 
     // For this example, only look at a single ARC files.
-    String inputPath   = "s3n://aws-publicdatasets/common-crawl/parse-output/segment/1341690164240/1341817173109_4.arc.gz";
+    String inputPath   = "s3n://aws-publicdatasets/common-crawl/parse-output/segment/1341690163490/1341782443295_1551.arc.gz";
  
     // Switch to this if you'd like to look at all ARC files.  May take many minutes just to read the file listing.
   //String inputPath   = "s3n://aws-publicdatasets/common-crawl/parse-output/segment/*/*.arc.gz";
@@ -196,7 +194,7 @@ public class ExampleArcMicroformatCC
     // Creates a new job configuration for this Hadoop job.
     JobConf job = new JobConf(this.getConf());
 
-    job.setJarByClass(ExampleArcMicroformatCC.class);
+    job.setJarByClass(ExampleArcMicroformat.class);
 
     // Scan the provided input path for ARC files.
     LOG.info("setting input path to '"+ inputPath + "'");
@@ -217,7 +215,7 @@ public class ExampleArcMicroformatCC
     FileOutputFormat.setCompressOutput(job, false);
 
     // Set which InputFormat class to use.
-    job.setInputFormat(ArcInputFormatCC.class);
+    job.setInputFormat(ArcInputFormat.class);
 
     // Set which OutputFormat class to use.
     job.setOutputFormat(TextOutputFormat.class);
@@ -227,7 +225,7 @@ public class ExampleArcMicroformatCC
     job.setOutputValueClass(LongWritable.class);
 
     // Set which Mapper and Reducer classes to use.
-    job.setMapperClass(ExampleArcMicroformatCC.ExampleArcMicroformatCCMapper.class);
+    job.setMapperClass(ExampleArcMicroformat.ExampleArcMicroformatMapper.class);
     job.setReducerClass(LongSumReducer.class);
 
     if (JobClient.runJob(job).isSuccessful())
@@ -242,7 +240,7 @@ public class ExampleArcMicroformatCC
    */
   public static void main(String[] args)
       throws Exception {
-    int res = ToolRunner.run(new Configuration(), new ExampleArcMicroformatCC(), args);
+    int res = ToolRunner.run(new Configuration(), new ExampleArcMicroformat(), args);
     System.exit(res);
   }
 }

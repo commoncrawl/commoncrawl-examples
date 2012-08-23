@@ -47,7 +47,7 @@ import org.jsoup.nodes.Document;
  *
  * @author Chris Stephens
  */
-public class ArcRecordCC
+public class ArcRecord
     implements Writable {
 
   private static final Logger LOG = Logger.getLogger(ArcRecord.class);
@@ -75,7 +75,7 @@ public class ArcRecordCC
   /**
    * <p>Creates an empty ARC record.</p>
    */
-  public ArcRecordCC() { }
+  public ArcRecord() { }
 
   private void _clear() {
     this._url = null;
@@ -201,8 +201,7 @@ public class ArcRecordCC
     if (in == null)
       throw new IllegalArgumentException("ArcRecord cannot be created from NULL/missing input stream.");
 
-    // WORK-AROUND: Current ARC files contain three extra content bytes.
-    int bufferSize = this._contentLength + 3;
+    int bufferSize = this._contentLength;
 
     this._payload = new byte[bufferSize];
 

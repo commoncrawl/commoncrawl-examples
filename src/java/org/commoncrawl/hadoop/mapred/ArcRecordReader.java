@@ -28,10 +28,10 @@ import org.commoncrawl.compressors.gzip.GzipCompressorInputStream;
  * Set "io.file.buffer.size" to define the amount of data that should be
  * buffered from S3.
  */
-public class ArcRecordReaderCC
-    implements RecordReader<Text, ArcRecordCC> {
+public class ArcRecordReader
+    implements RecordReader<Text, ArcRecord> {
 
-  private static final Logger LOG = Logger.getLogger(ArcRecordReaderCC.class);
+  private static final Logger LOG = Logger.getLogger(ArcRecordReader.class);
 
   private FSDataInputStream         _fsin;
   private GzipCompressorInputStream _gzip;
@@ -40,7 +40,7 @@ public class ArcRecordReaderCC
   /**
    *
    */
-  public ArcRecordReaderCC(Configuration job, FileSplit split)
+  public ArcRecordReader(Configuration job, FileSplit split)
       throws IOException { 
 
     if (split.getStart() != 0) {
@@ -91,8 +91,8 @@ public class ArcRecordReaderCC
   /**
    * @inheritDoc
    */
-  public ArcRecordCC createValue() {
-    return new ArcRecordCC();
+  public ArcRecord createValue() {
+    return new ArcRecord();
   }
 
   private static byte[] _checkBuffer = new byte[64];
@@ -100,7 +100,7 @@ public class ArcRecordReaderCC
   /**
    * 
    */
-  public synchronized boolean next(Text key, ArcRecordCC value)
+  public synchronized boolean next(Text key, ArcRecord value)
       throws IOException {
 
     boolean isValid = true;
