@@ -29,7 +29,7 @@ Now you can use Tim Kay's AWS Command Line tool.  Try this:
   aws ls -1 aws-publicdatasets/common-crawl/parse-output/segment/1341690167474/metadata-
 
 If you are planning on using the local Hadoop cluster, you should also consider
-setting these properties in /etc/hadoop/hadoop-site.xml:
+setting these properties in /etc/hadoop/core-site.xml:
 
   fs.s3n.awsAccessKeyId
   fs.s3n.awsSecretAccessKey
@@ -43,7 +43,7 @@ setting these properties in /etc/hadoop/hadoop-site.xml:
   ant
 
 4. Run an example!  Decide whether you want to run an example on the small local
-Hadoop instance on on Amazon Elastic MapReduce.
+Hadoop instance or on Amazon Elastic MapReduce.
 
 Run this command to see your options:
 
