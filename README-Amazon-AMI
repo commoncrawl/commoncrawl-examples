@@ -1,4 +1,3 @@
-
 Common Crawl Quick Start Amazon AMI
 -----------------------------------
 
@@ -43,7 +42,7 @@ setting these properties in /etc/hadoop/hadoop-site.xml:
   ant
 
 4. Run an example!  Decide whether you want to run an example on the small local
-Hadoop instance on on Amazon Elastic MapReduce.
+Hadoop instance or on Amazon Elastic MapReduce.
 
 Run this command to see your options:
 
