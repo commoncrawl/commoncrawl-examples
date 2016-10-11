@@ -208,7 +208,7 @@ public class ExampleMetadataStats
 
     // If you would like to process all segments, comment this out and
     // uncomment the block of code below
-    String inputPath = baseInputPath + "/1341690154994/metadata-00062";
+    String inputPath = baseInputPath + "/1346823845675/metadata-04379";
 
     LOG.info("adding input path '" + inputPath + "'");
     FileInputFormat.addInputPath(job, new Path(inputPath));
