@@ -11,13 +11,13 @@ import static junit.framework.Assert.*;
 /**
  * Unit Tests for jUnit 3.8
  */
-public class TestArcRecordCC extends TestCase {
+public class TestArcRecord extends TestCase {
 
-  ArcRecordCC r;
+  ArcRecord r;
 
   /*
   public static junit.framework.Test suite() {
-    return new junit.framework.JUnit4TestAdapter(TestArcRecordCC.class);
+    return new junit.framework.JUnit4TestAdapter(TestArcRecord.class);
   }
   */
 
@@ -50,7 +50,7 @@ public class TestArcRecordCC extends TestCase {
   }    
 
   public void setUp() {
-    r = new ArcRecordCC();
+    r = new ArcRecord();
   }
 
   public void test_getIpAddress()
